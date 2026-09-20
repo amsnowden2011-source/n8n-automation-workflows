@@ -1,0 +1,455 @@
+{
+  "updatedAt": "2026-07-20T03:40:04.296Z",
+  "createdAt": "2026-07-19T10:50:04.349Z",
+  "id": "EpXFdvdiLnpxugtz",
+  "name": "Gumroad Post purchase review and sales alert pipeline",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Normalize Gumroad ping (form-encoded) into clean fields.\nconst b = $input.first().json.body || $input.first().json;\nconst permalink = (b.permalink || b.short_url || '').split('/').pop();\nconst emails = {\n  rsaiql: {\n    subject: 'Getting a full week out of one transcript yet?',\n    body: `Hey {{name}},\\n\\nThanks for picking up the Repurpose Kit. Quick tip most people miss: the prompt templates in prompts/*.md are meant to be edited \u2014 swap in a few phrases you actually use and the output stops sounding generic and starts sounding like you. Two minutes, big difference.\\n\\nIf the kit's saving you time, would you leave a quick rating? It genuinely helps a small tool like this get found: https://gumroad.com/library\\n\\nStuck on anything \u2014 install, API keys, mock mode \u2014 just reply and I'll help.\\n\\n\u2014 Aaron`\n  },\n  cdvftz: {\n    subject: 'One thing to do before reading past chapter 2',\n    body: `Hey {{name}},\\n\\nThanks for grabbing the Playbook. Before you go deep: do the niche-scoring worksheet early. Almost everyone wants to skip to the listing templates, but ten minutes of scoring saves weeks of building in a niche that won't convert.\\n\\nIf it's been useful so far, a quick rating would mean a lot \u2014 reviews are how playbooks like this reach other sellers: https://gumroad.com/library\\n\\nQuestions about your niche pick? Reply \u2014 I read these.\\n\\n\u2014 Aaron`\n  },\n  hjabq: {\n    subject: 'The 10-minute brand-swap trick for your new templates',\n    body: `Hey {{name}},\\n\\nThanks for picking up the Editorial Neutral bundle. Fastest way to make all 250 templates yours: open one template, set your two brand colors and fonts using Canva's Brand Kit, and every other template picks them up as you open it. Ten minutes, entire library on-brand.\\n\\nIf the templates are earning their keep on your feed, I'd really appreciate a quick rating: https://gumroad.com/library\\n\\nAnything broken or missing? Reply and I'll fix it.\\n\\n\u2014 Aaron`\n  },\n  mszpqt: {\n    subject: \"Which 10 reels to post first (don't start at #1)\",\n    body: `Hey {{name}},\\n\\nThanks for grabbing The Estate Reel. Tip: don't post in file order. Start with the \\\"just listed\\\" and \\\"sold\\\" hooks \u2014 they perform best for building an audience \u2014 and save the lifestyle/neighborhood clips for once you have some followers watching.\\n\\nIf the reels are getting you engagement, a quick rating helps other agents find the pack: https://gumroad.com/library\\n\\nWant a posting-cadence suggestion for your market? Hit reply.\\n\\n\u2014 Aaron`\n  },\n  oxgrh: {\n    subject: 'Print just page 3 first',\n    body: `Hey {{name}},\\n\\nThanks for getting the Daily Dashboard. Honest advice: don't print all 40 pages. Print the one-page daily sheet (page 3) five times and run just that for a week. If it sticks, add the weekly review page. Starting small is the whole trick.\\n\\nIf it's helping your days feel more manageable, a quick rating would mean a lot: https://gumroad.com/library\\n\\n\u2014 Aaron\\n\\nP.S. Reply if you'd like the undated pages as separate files for easier printing.`\n  }\n};\nconst tpl = emails[permalink] || { subject: `How's ${b.product_name || 'your purchase'} working for you?`, body: `Hey {{name}},\\n\\nThanks for your purchase! If it's been helpful, a quick rating would mean a lot: https://gumroad.com/library\\n\\n\u2014 Aaron` };\nconst name = (b.full_name || '').split(' ')[0] || 'there';\nreturn [{ json: {\n  sale_id: b.sale_id || '',\n  buyer_email: b.email || '',\n  buyer_name: name,\n  product_name: b.product_name || permalink,\n  permalink,\n  price_usd: (parseInt(b.price || 0, 10) / 100).toFixed(2),\n  country: b.ip_country || 'unknown',\n  sale_timestamp: b.sale_timestamp || new Date().toISOString(),\n  email_subject: tpl.subject,\n  email_body: tpl.body.replace('{{name}}', name)\n}}];"
+      },
+      "id": "38e1e25f-a73b-4ae7-9f9b-f74369984a79",
+      "name": "Normalize Sale Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=\ud83d\udcb0 **SALE**: {{ $json.product_name }} \u2014 ${{ $json.price_usd }} ({{ $json.country }})",
+        "options": {}
+      },
+      "id": "56f03585-8eb4-42dc-971e-0c084feeba45",
+      "name": "Discord Sale Alert",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        368,
+        544
+      ],
+      "webhookId": "9fb4a858-e7f4-44a8-ad19-b82508159416"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sales",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.sale_timestamp }}",
+            "Product": "={{ $json.product_name }}",
+            "Price": "={{ $json.price_usd }}",
+            "Customer Email": "={{ $json.buyer_email }}",
+            "Sales ID": "={{ $json.sale_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Product",
+              "displayName": "Product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Price",
+              "displayName": "Price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Customer Email",
+              "displayName": "Customer Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Sales ID",
+              "displayName": "Sales ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e707af58-4ff3-4d34-86b3-eadd7df1011a",
+      "name": "Log Sale to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        384,
+        864
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "XWqE6M2vbFBWSodl",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.gumroad.com/v2/sales/{{ $json.sale_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "efc1e107-8851-4e0a-8106-454dd6efdd74",
+      "name": "Fetch Sale (Refund Check)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        592,
+        704
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "0Imu744MivieLmmO",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sale.refunded }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "353e7e84-d49e-41c7-aaad-9b73ce30a652",
+      "name": "IF Not Refunded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        816,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gumroad-sale",
+        "options": {}
+      },
+      "id": "0a01a15f-eab7-4520-862b-043e0ce7c3b6",
+      "name": "Sale Received (Gumroad Ping)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        592
+      ],
+      "webhookId": "gumroad-sale"
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "days"
+      },
+      "id": "b668304c-e1a0-4d76-9689-4b0340eca686",
+      "name": "Wait 3 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        128,
+        -32
+      ],
+      "webhookId": "wait-review"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Normalize Sale Data1').item.json.buyer_email }}",
+        "subject": "={{ $('Normalize Sale Data1').item.json.email_subject }}",
+        "message": "={{ $('Normalize Sale Data1').item.json.email_body }}",
+        "options": {}
+      },
+      "id": "b0a96a02-eff9-419e-913a-d36404b3d8e7",
+      "name": "Send Review Request",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        832,
+        208
+      ],
+      "webhookId": "a2e8deff-8a6c-4a5b-874e-6b5150de2ac8"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=\ud83d\udce8 Review request sent \u2014 {{ $('Normalize Sale Data1').item.json.product_name }} (sale {{ $('Normalize Sale Data1').item.json.sale_id }})",
+        "options": {}
+      },
+      "id": "c989a660-1b85-42db-9339-24f255bd0558",
+      "name": "Discord Review Confirm",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        208
+      ],
+      "webhookId": "92648324-80b1-437b-aceb-2b487740e9ef"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Renders the review-request email per product at sale time.\n// Feed this node an item that already contains sale fields\n// (permalink, full_name, email, sale_id, etc.).\nconst b = $input.first().json.body || $input.first().json;\nconst permalink = (b.permalink || b.short_url || '').split('/').pop();\nconst emails = {\n  rsaiql: {\n    subject: 'Getting a full week out of one transcript yet?',\n    body: `Hey {{name}},\\n\\nThanks for picking up the Repurpose Kit. Quick tip most people miss: the prompt templates in prompts/*.md are meant to be edited \u2014 swap in a few phrases you actually use and the output stops sounding generic and starts sounding like you. Two minutes, big difference.\\n\\nIf the kit's saving you time, would you leave a quick rating? It genuinely helps a small tool like this get found: https://gumroad.com/library\\n\\nStuck on anything \u2014 install, API keys, mock mode \u2014 just reply and I'll help.\\n\\n\u2014 Aaron`\n  },\n  cdvftz: {\n    subject: 'One thing to do before reading past chapter 2',\n    body: `Hey {{name}},\\n\\nThanks for grabbing the Playbook. Before you go deep: do the niche-scoring worksheet early. Almost everyone wants to skip to the listing templates, but ten minutes of scoring saves weeks of building in a niche that won't convert.\\n\\nIf it's been useful so far, a quick rating would mean a lot \u2014 reviews are how playbooks like this reach other sellers: https://gumroad.com/library\\n\\nQuestions about your niche pick? Reply \u2014 I read these.\\n\\n\u2014 Aaron`\n  },\n  hjabq: {\n    subject: 'The 10-minute brand-swap trick for your new templates',\n    body: `Hey {{name}},\\n\\nThanks for picking up the Editorial Neutral bundle. Fastest way to make all 250 templates yours: open one template, set your two brand colors and fonts using Canva's Brand Kit, and every other template picks them up as you open it. Ten minutes, entire library on-brand.\\n\\nIf the templates are earning their keep on your feed, I'd really appreciate a quick rating: https://gumroad.com/library\\n\\nAnything broken or missing? Reply and I'll fix it.\\n\\n\u2014 Aaron`\n  },\n  mszpqt: {\n    subject: \"Which 10 reels to post first (don't start at #1)\",\n    body: `Hey {{name}},\\n\\nThanks for grabbing The Estate Reel. Tip: don't post in file order. Start with the \\\"just listed\\\" and \\\"sold\\\" hooks \u2014 they perform best for building an audience \u2014 and save the lifestyle/neighborhood clips for once you have some followers watching.\\n\\nIf the reels are getting you engagement, a quick rating helps other agents find the pack: https://gumroad.com/library\\n\\nWant a posting-cadence suggestion for your market? Hit reply.\\n\\n\u2014 Aaron`\n  },\n  oxgrh: {\n    subject: 'Print just page 3 first',\n    body: `Hey {{name}},\\n\\nThanks for getting the Daily Dashboard. Honest advice: don't print all 40 pages. Print the one-page daily sheet (page 3) five times and run just that for a week. If it sticks, add the weekly review page. Starting small is the whole trick.\\n\\nIf it's helping your days feel more manageable, a quick rating would mean a lot: https://gumroad.com/library\\n\\n\u2014 Aaron\\n\\nP.S. Reply if you'd like the undated pages as separate files for easier printing.`\n  }\n};\nconst tpl = emails[permalink] || { subject: `How's ${b.product_name || 'your purchase'} working for you?`, body: `Hey {{name}},\\n\\nThanks for your purchase! If it's been helpful, a quick rating would mean a lot: https://gumroad.com/library\\n\\n\u2014 Aaron` };\nconst name = (b.full_name || '').split(' ')[0] || 'there';\nreturn [{ json: {\n  sale_id: b.sale_id || '',\n  buyer_email: b.email || '',\n  buyer_name: name,\n  product_name: b.product_name || permalink,\n  permalink,\n  sale_timestamp: b.sale_timestamp || new Date().toISOString(),\n  email_subject: tpl.subject,\n  email_body: tpl.body.replaceAll('{{name}}', name)\n}}];"
+      },
+      "id": "d3ec2beb-f348-4af5-9027-81bd4b4ffc86",
+      "name": "Normalize Sale Data1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.gumroad.com/v2/sales/{{ $json.sale_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "147d14c7-cc4b-49a4-ae81-51d4070e6ae1",
+      "name": "Fetch Sale (Refund Check)1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sale.refunded }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d2e6037e-76e2-4ab6-a5cd-0d4fa1cdf7d9",
+      "name": "IF Not Refunded1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        624,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "Normalize Sale Data": {
+      "main": [
+        [
+          {
+            "node": "Discord Sale Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Sale to Sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Sale (Refund Check)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Sale (Refund Check)": {
+      "main": [
+        [
+          {
+            "node": "IF Not Refunded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sale Received (Gumroad Ping)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Sale Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 3 Days": {
+      "main": [
+        [
+          {
+            "node": "Fetch Sale (Refund Check)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Review Request": {
+      "main": [
+        [
+          {
+            "node": "Discord Review Confirm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Sale Data1": {
+      "main": [
+        [
+          {
+            "node": "Wait 3 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Sale (Refund Check)1": {
+      "main": [
+        [
+          {
+            "node": "IF Not Refunded1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Not Refunded1": {
+      "main": [
+        [
+          {
+            "node": "Send Review Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "d7f633e1-db50-4b83-b00a-92d2963d294d",
+  "activeVersionId": null,
+  "versionCounter": 56,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-07-19T10:50:04.352Z",
+      "createdAt": "2026-07-19T10:50:04.352Z",
+      "role": "workflow:owner",
+      "workflowId": "EpXFdvdiLnpxugtz",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

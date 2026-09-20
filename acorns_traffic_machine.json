@@ -1,0 +1,457 @@
+{
+  "updatedAt": "2026-09-12T13:28:46.912Z",
+  "createdAt": "2026-08-23T17:49:38.535Z",
+  "id": "gsAGRK3RH9LtRcVU",
+  "name": "Acorns traffic machine",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Bannerbear via HTTP Request\n\nThe native `n8n-nodes-base.bannerbear` node only supports **images** (`POST /v2/images`). Video Studio renders need `POST /v2/videos`, so it is replaced by a plain HTTP Request node.\n\n**Fill in before running:**\n- `[YOUR_API_KEY]` \u2014 Bannerbear project API key, in the `Authorization: Bearer` header of both Bannerbear nodes\n- `[YOUR_TEMPLATE_ID]` \u2014 Video Studio template id (`video_template_id`)\n- `modifications[].name` must match the **layer names** in that template, otherwise Bannerbear renders template defaults\n\nIf the template composites over source footage, add `\"input_media_url\": \"<mp4 url>\"` to the JSON body.\n\n`POST /v2/videos` returns `status: \"pending\"` with no `video_url`, so the render is polled before the download node.",
+        "height": 460,
+        "width": 804
+      },
+      "id": "c0ffee00-0000-4000-8000-00000000000a",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://finance.yahoo.com/news/rss",
+        "options": {}
+      },
+      "id": "b71840e1-65d0-44af-a5aa-1fffa2398d03",
+      "name": "RSS Feed Monitor",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -1168,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-6"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are an energetic, relatable personal finance creator targeting young adults, young professionals, and absolute beginner investors. Take the provided news and use it as an opening topic, then pivot to a personal story about how Acorns made investing effortless for you through spare change round-ups.\n\nReturn ONLY a single minified JSON object. No markdown, no code fences, no commentary. Exactly these keys:\n{\"youtube_title\":\"\",\"pinterest_caption\":\"\",\"hook\":\"\",\"scene_1\":\"\",\"scene_2\":\"\",\"scene_3\":\"\",\"on_screen_1\":\"\",\"on_screen_2\":\"\",\"on_screen_3\":\"\"}\n\nRules:\n* scene_1, scene_2, scene_3: spoken voiceover lines of 12-20 words each, casual, punchy, and conversational.\n* on_screen_1, on_screen_2, on_screen_3: uppercase on-screen text, max 40 characters each.\n* on_screen_3 MUST be a short, bold phrase summarizing the call to action.\n* youtube_title: max 95 characters, engaging for young investors, no angle brackets.\n* hook: a unique, clever concluding phrase (under 12 words) for the final slide. It MUST piggyback off the personal story in scene_2 and smoothly transition the viewer to click the referral link below it (e.g. \"You can do it too using this link\").\n* pinterest_caption: max 480 characters, includes exactly 3 hashtags geared toward young adults, beginners, and saving money.\n* pinterest_caption and youtube_title must not contain double quotes.\n* scene_1 MUST establish the problem: investing feels intimidating and everyday people feel priced out.\n* scene_2 MUST be a personal testimony: explain that you personally use Acorns to automatically invest your spare change, allowing you to build wealth behind the scenes without changing how you spend.\n* scene_3 MUST be a direct call to action telling the viewer to use the link to grab their free $5 bonus and start their own portfolio today.\n* Both pinterest_caption and scene_3 must end with this exact referral link: https://acorns.com/share/?shareable_code=REFERRAL_CODE&first_name=Alexander&friend_reward=5\n* Never invent statistics, dollar figures, or dates that are not in the source article.\n\nArticle Title: {{ $json.title }}\nArticle Link: {{ $json.link }}\nSummary: {{ $json.contentSnippet || $json.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0fc867c0-9f56-466e-8576-05db78ec2d56",
+      "name": "Message a model",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        80
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "9NkgwAQrdBeiKQCl",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Extract data from the Anthropic node\nconst inputData = $input.first().json;\nlet rawText = \"\";\n\nif (inputData.content && Array.isArray(inputData.content)) {\n    const textBlock = inputData.content.find(block => block.type === 'text');\n    if (textBlock && textBlock.text) {\n        rawText = textBlock.text;\n    } else {\n        throw new Error(\"No text block found in the model's content array.\");\n    }\n} else if (inputData.text) {\n    rawText = inputData.text;\n} else {\n    throw new Error(\"Unexpected output format.\");\n}\n\n// 2. Clean and parse the JSON (handles both raw and stringified formats)\nlet data;\ntry {\n    // If the text starts with a quote, it's stringified JSON; parse it first to unescape\n    if (rawText.trim().startsWith('\"') || rawText.trim().startsWith(\"'\")) {\n        rawText = JSON.parse(rawText);\n    }\n    \n    // Extract the inner JSON if there is extra wrapper text\n    const jsonStartIndex = rawText.indexOf('{');\n    const jsonEndIndex = rawText.lastIndexOf('}');\n    const jsonString = rawText.substring(jsonStartIndex, jsonEndIndex + 1);\n    \n    data = JSON.parse(jsonString);\n} catch (e) {\n    throw new Error(\"Failed to parse JSON: \" + e.message);\n}\n\n// 3. Validate and format the parsed data\nconst required = ['youtube_title', 'pinterest_caption', 'hook', 'scene_1', 'scene_2', 'scene_3', 'on_screen_1', 'on_screen_2', 'on_screen_3'];\nconst missing = required.filter(k => !data[k] || String(data[k]).trim() === '');\nif (missing.length) {\n    throw new Error('Claude output missing keys: ' + missing.join(', '));\n}\n\nconst REF = 'https://acorns.com/share/?shareable_code=REFERRAL_CODE&first_name=Alexander&friend_reward=5';\nconst out = {};\n\nfor (const k of required) {\n    out[k] = String(data[k]).trim();\n}\n\nout.youtube_title = out.youtube_title.replace(/[<>]/g, '').slice(0, 95);\nout.pinterest_caption = out.pinterest_caption.slice(0, 480);\nif (!out.pinterest_caption.includes(REF)) {\n    out.pinterest_caption = out.pinterest_caption.slice(0, 480 - REF.length - 1) + ' ' + REF;\n}\nout.referral_link = REF;\nout.source_title = $('RSS Feed Monitor').first().json.title || '';\nout.source_url = $('RSS Feed Monitor').first().json.link || '';\n\nreturn [{json: out}];"
+      },
+      "id": "c0ffee00-0000-4000-8000-00000000000b",
+      "name": "Parse Script JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.bannerbear.com/v2/videos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_BANNERBEAR_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"video_template\": \"6oexmdy35KJb1QPwDL\",\n  \"input_media_url\": \"http://YOUR_SERVER_IP:8080/bg.mp4\",\n  \"frames\": [\n    [ { \"name\": \"caption_1\", \"text\": \"{{$json.hook}}\" } ],\n    [ { \"name\": \"caption_1\", \"text\": \"{{$json.scene_1}}\" } ],\n    [ { \"name\": \"caption_1\", \"text\": \"{{$json.scene_2}}\" } ],\n    [\n      { \"name\": \"caption_1\", \"text\": \"https://acorns.com/share/?shareable_code=REFERRAL_CODE&first_name=Alexander&friend_reward=5\" },\n      { \"name\": \"on_screen_3\", \"text\": \"{{$json.on_screen_3}}\" }\n    ]\n  ]\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "0be4dd88-7b68-4341-9380-3f5eee22ae91",
+      "name": "Bannerbear Video Studio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -288,
+        96
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "id": "c0ffee00-0000-4000-8000-00000000000c",
+      "name": "Wait For Render",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -112,
+        96
+      ],
+      "webhookId": "bb-video-render-wait"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.bannerbear.com/v2/videos/{{ $('Bannerbear Video Studio').first().json.uid }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_BANNERBEAR_API_KEY"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "c0ffee00-0000-4000-8000-00000000000d",
+      "name": "Get Video Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        64,
+        96
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cond-completed",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "completed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "completed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cond-failed",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "pending"
+        }
+      },
+      "id": "c0ffee00-0000-4000-8000-00000000000e",
+      "name": "Render Status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        224,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Bannerbear render failed for uid {{ $json.uid }} (source: {{ $('Parse Script JSON').first().json.source_url }})"
+      },
+      "id": "c0ffee00-0000-4000-8000-00000000000f",
+      "name": "Stop \u2014 Render Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        400,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.video_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "id": "531fd40b-073a-4a0d-80dd-d5efb0f70438",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        400,
+        32
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -944,
+        96
+      ],
+      "id": "936d10c5-1075-4a62-8521-5d8d5c08cc56",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1360,
+        96
+      ],
+      "id": "cdcd9cee-3e0c-4be4-a184-1a74980105a8",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "RSS Feed Monitor": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Parse Script JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script JSON": {
+      "main": [
+        [
+          {
+            "node": "Bannerbear Video Studio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bannerbear Video Studio": {
+      "main": [
+        [
+          {
+            "node": "Wait For Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For Render": {
+      "main": [
+        [
+          {
+            "node": "Get Video Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Video Status": {
+      "main": [
+        [
+          {
+            "node": "Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Status": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop \u2014 Render Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait For Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS Feed Monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "5dcac61d-6c40-4881-ae05-3e261a09c921",
+  "activeVersionId": null,
+  "versionCounter": 129,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-23T17:49:38.538Z",
+      "createdAt": "2026-08-23T17:49:38.538Z",
+      "role": "workflow:owner",
+      "workflowId": "gsAGRK3RH9LtRcVU",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

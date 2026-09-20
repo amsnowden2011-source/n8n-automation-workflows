@@ -1,0 +1,480 @@
+{
+  "updatedAt": "2026-08-16T04:41:18.174Z",
+  "createdAt": "2026-08-09T15:33:22.223Z",
+  "id": "ot0MqcFY3PE6TP2E",
+  "name": "Lead Generation Pipeline",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/automation-lab~linkedin-profile-scraper/run-sync-get-dataset-items",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $env.APIFY_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"profileUrls\": [\n    \"{{ $json.LinkedInURL }}\"\n  ]\n}",
+        "options": {}
+      },
+      "name": "Apify LinkedIn Scraper1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        448,
+        48
+      ],
+      "id": "b2a9dbbb-7d0e-40b2-a1fe-25bbcaa352b5"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        48,
+        48
+      ],
+      "id": "8485cfd3-8a48-47b5-9695-19b4b93b297b",
+      "name": "When clicking \u2018Execute workflow\u2019"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "0",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        256,
+        48
+      ],
+      "id": "58708c39-e4f1-4cc8-8a40-390053e8c185",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "qGSk5ryUqSGa6ROg",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. Clean up Names\nconst nameParts = ($json.name || \"\").trim().split(\" \");\n$json.firstName = nameParts[0] || \"\";\n$json.lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : \"\";\n\n// 2. Normalize the profile URL - Apify's field name varies by actor version, and\n//    the Sheets write at the end matches rows on this value.\n$json.linkedinUrl = $json.linkedinUrl || $json.profileUrl || $json.url\n                 || ($json.publicIdentifier ? `https://www.linkedin.com/in/${$json.publicIdentifier}` : \"\");\n\n// 2b. Job title - prefer the current position, fall back to the profile headline.\n$json.jobTitle = $json.currentPositions?.[0]?.title || $json.headline || \"\";\n\n// 3. Identify the Company\nconst company = $json.currentPositions?.[0]?.company;\n$json.company = company || \"\";\n$json.domain = \"\";\n\n// 4. Automatically lookup the Domain using Clearbit\nif (company) {\n    try {\n        const response = await this.helpers.httpRequest({\n            method: 'GET',\n            url: `https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(company)}`,\n            json: true\n        });\n\n        if (response && response.length > 0) {\n            $json.domain = response[0].domain;\n        }\n    } catch (error) {\n        // If it fails, domain stays blank and the Filter drops the row.\n    }\n}\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        48
+      ],
+      "id": "823caff5-a129-41fd-96aa-67b285d9eba2",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "19c434e3-8972-4343-bdec-f89cabc05b2d",
+              "leftValue": "={{ $json.domain }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cfd2928b-4db3-45de-894b-a3fe4bf5a4e5",
+              "leftValue": "={{ $json.domain }}",
+              "rightValue": "^[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        848,
+        48
+      ],
+      "id": "148798a5-cade-459b-a6cd-86fc94f13b8a",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "LinkedInURL": "={{ $('Code in JavaScript').item.json.linkedinUrl || 'Not Found' }}",
+            "Email": "={{ $('Hunter').item.json.email || 'Not Found' }}"
+          },
+          "matchingColumns": [
+            "LinkedInURL"
+          ],
+          "schema": [
+            {
+              "id": "LinkedInURL",
+              "displayName": "LinkedInURL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1456,
+        48
+      ],
+      "id": "054e41ec-328c-4211-92b0-bad9075b062a",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "qGSk5ryUqSGa6ROg",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "emailFinder",
+        "domain": "={{ $json.domain }}",
+        "firstname": "={{ $json.firstName }}",
+        "lastname": "={{ $json.lastName }}"
+      },
+      "type": "n8n-nodes-base.hunter",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        48
+      ],
+      "id": "4a23f763-ae83-4311-9397-4e0bd2ba1c22",
+      "name": "Hunter",
+      "retryOnFail": true,
+      "credentials": {
+        "hunterApi": {
+          "id": "nGdxjVcJjnN8MA2R",
+          "name": "Hunter account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "emailVerifier",
+        "email": "={{ $json.email }}"
+      },
+      "type": "n8n-nodes-base.hunter",
+      "typeVersion": 1,
+      "position": [
+        1264,
+        48
+      ],
+      "id": "413d01c4-bf1b-4573-b826-d1d71958d2e5",
+      "name": "Hunter1",
+      "retryOnFail": true,
+      "credentials": {
+        "hunterApi": {
+          "id": "nGdxjVcJjnN8MA2R",
+          "name": "Hunter account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        -80
+      ],
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Daily 09:00"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/smartlead-inbound",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  firstName:     $('Code in JavaScript').item.json.firstName,\n  lastName:      $('Code in JavaScript').item.json.lastName,\n  company:       $('Code in JavaScript').item.json.company,\n  companyDomain: $('Code in JavaScript').item.json.domain,\n  linkedinUrl:   $('Code in JavaScript').item.json.linkedinUrl,\n  email:         $('Hunter').item.json.email,\n  title:         $('Code in JavaScript').item.json.jobTitle,\n  source:        'lead-generation-pipeline'\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1920,
+        48
+      ],
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Handoff -> Smartlead Enrichment",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a1b2c3d4-0003-4000-8000-000000000003",
+              "leftValue": "={{ $('Hunter').item.json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1648,
+        48
+      ],
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Email Found?"
+    }
+  ],
+  "connections": {
+    "When clicking \u2018Execute workflow\u2019": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Apify LinkedIn Scraper1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify LinkedIn Scraper1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Hunter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hunter": {
+      "main": [
+        [
+          {
+            "node": "Hunter1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hunter1": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 09:00": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Email Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Found?": {
+      "main": [
+        [
+          {
+            "node": "Handoff -> Smartlead Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "96f4a801-a95a-4bbe-a970-a116057d5afd",
+  "activeVersionId": null,
+  "versionCounter": 133,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-09T15:33:22.226Z",
+      "createdAt": "2026-08-09T15:33:22.226Z",
+      "role": "workflow:owner",
+      "workflowId": "ot0MqcFY3PE6TP2E",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

@@ -1,0 +1,269 @@
+{
+  "updatedAt": "2026-08-13T22:43:57.530Z",
+  "createdAt": "2026-08-12T01:46:10.040Z",
+  "id": "SalesGodAdapter1",
+  "name": "SalesGod Adapter",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        0
+      ],
+      "id": "d1b2c3d4-0001-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Validate the {action, payload} contract and resolve the target url.\n//\n// Each action maps to a full url in its own env var. Nothing here assumes a\n// base path or a route shape, so pointing an action at a Zapier catch hook\n// instead of a REST endpoint is a config change, not a workflow change.\nconst URL_ENV = {\n  inbound_routing:      'SALESGOD_URL_INBOUND_ROUTING',\n  cross_channel_event:  'SALESGOD_URL_CROSS_CHANNEL_EVENT',\n  fallback_sms:         'SALESGOD_URL_FALLBACK_SMS',\n};\n\n// Callers name the contact write differently; treat them as one action rather\n// than forcing every caller to know the canonical name.\nconst ALIASES = { upsert: 'inbound_routing', upsert_contact: 'inbound_routing' };\n\nconst raw = $json ?? {};\n\n// Accept the nested contract {action, payload} and the flattened\n// {action, ...fields} shape, so a caller that spreads its fields still works.\nlet action = String(raw.action || '').trim();\nlet payload = raw.payload;\nif (payload === undefined || payload === null) {\n  const { action: _drop, ...rest } = raw;\n  payload = rest;\n}\n\nif (!action) {\n  // Name what actually arrived - an empty object here almost always means the\n  // calling Execute Workflow node has a 'defineBelow' input mapping that\n  // replaced the item instead of passing it through.\n  const keys = Object.keys(raw);\n  throw new Error(\n    'SalesGod Adapter called without an \"action\". Expected { action, payload }. ' +\n    `Received keys: [${keys.join(', ') || 'none - empty item'}]. ` +\n    'If empty, clear the \"Workflow Inputs\" mapping on the calling ' +\n    'Execute Workflow node so the item passes through.'\n  );\n}\n\naction = ALIASES[action] || action;\n\nif (!URL_ENV[action]) {\n  throw new Error(\n    `SalesGod Adapter received unknown action \"${action}\". ` +\n    `Known actions: ${Object.keys(URL_ENV).join(', ')} ` +\n    `(aliases: ${Object.keys(ALIASES).join(', ')}).`\n  );\n}\n\nlet targetUrl = '';\ntry { targetUrl = String($env[URL_ENV[action]] || '').trim(); } catch (e) { targetUrl = ''; }\n\n// Callers supply a stable dedupe key; fall back to something deterministic so\n// the adapter is still idempotent if they forget.\nconst dedupeKey = payload.dedupe_key\n  || `salesgod:${action}:${payload.email || payload.phone || payload.event_id || 'unknown'}`;\n\n// Surface how much SalesGod has to work with. Endpoint-agnostic: the\n// receiving side can branch on this without us knowing its schema.\nconst VECTORS = ['company_domain', 'company_name', 'job_title', 'linkedin_url', 'email'];\nconst present = VECTORS.filter(k => payload[k]);\n\nreturn {\n  json: {\n    enrichment_ready: !payload.phone && present.length > 0,\n    enrichment_vectors: present,\n    action,\n    payload,\n    dedupe_key: dedupeKey,\n    target_url: targetUrl,\n    is_live: targetUrl.length > 0,\n    url_env_var: URL_ENV[action],\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        0
+      ],
+      "id": "d1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Validate Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d1b2c3d4-0003-4000-8000-000000000003",
+              "leftValue": "={{ $json.is_live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        288,
+        0
+      ],
+      "id": "d1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Adapter Configured?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.target_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SALESGOD_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.dedupe_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: $json.action, ...$json.payload }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        512,
+        -96
+      ],
+      "id": "d1b2c3d4-0005-4000-8000-000000000005",
+      "name": "SalesGod: Dispatch",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5000/api/alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUB_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  type: 'SALESGOD_STUB',\n  lead: $json.payload.email || $json.payload.phone || null,\n  action: $json.action,\n  dedupe_key: $json.dedupe_key,\n  payload: $json.payload,\n  message: 'SalesGod adapter in STUB mode - set ' + $json.url_env_var + ' to go live.'\n}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        512,
+        96
+      ],
+      "id": "d1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Stub: Record Call",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Single response shape for callers, whether this ran live, stubbed, or failed.\n// Callers use onError=continueRegularOutput, so a failure must be reported in\n// the payload rather than thrown -- a dead SalesGod must not fail an execution\n// whose email enrollment already succeeded.\nconst ctx = $('Validate Request').first().json;\n\nlet live = false;\ntry { live = $('SalesGod: Dispatch').isExecuted; } catch (e) { live = false; }\n\nconst j = $json || {};\nconst errored = Boolean(j.error) || Boolean(j.__isErrorItem);\n\nreturn {\n  json: {\n    ok: !errored,\n    action: ctx.action,\n    mode: live ? 'live' : 'stub',\n    dedupe_key: ctx.dedupe_key,\n    remote_id: j.id ?? j.contact_id ?? j.data?.id ?? (live ? null : `stub-${ctx.dedupe_key}`),\n    error: errored ? (j.error?.message ?? String(j.error ?? 'unknown adapter error')) : null,\n    raw: live ? j : null,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        0
+      ],
+      "id": "d1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Normalize Adapter Response"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Adapter Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adapter Configured?": {
+      "main": [
+        [
+          {
+            "node": "SalesGod: Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stub: Record Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SalesGod: Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Normalize Adapter Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Adapter Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stub: Record Call": {
+      "main": [
+        [
+          {
+            "node": "Normalize Adapter Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "65dc9a0a-d897-4084-93f9-54e0bcb80346",
+  "activeVersionId": "65dc9a0a-d897-4084-93f9-54e0bcb80346",
+  "versionCounter": 7,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-12T01:46:10.043Z",
+      "createdAt": "2026-08-12T01:46:10.043Z",
+      "role": "workflow:owner",
+      "workflowId": "SalesGodAdapter1",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 65dc9a0a",
+    "description": ""
+  }
+}

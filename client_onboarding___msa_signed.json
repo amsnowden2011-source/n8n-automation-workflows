@@ -1,0 +1,1224 @@
+{
+  "updatedAt": "2026-08-05T04:51:27.149Z",
+  "createdAt": "2026-08-01T02:42:43.947Z",
+  "id": "tN2favkQmhlwu8fQ",
+  "name": "Client Onboarding \u2014 MSA Signed",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "esign-document-completed",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "7d1401a1-6374-49c3-bc89-030505bd242c",
+      "name": "Webhook: E-Signature Completed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        304
+      ],
+      "webhookId": "bc44d7a5-945d-4df8-807a-4fa0b6554a43"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalizes e-signature webhook payloads from PandaDoc, DocuSign or SignWell\n// into one shape. Add a new branch below if you onboard another platform.\n\nconst RETAINER_AMOUNT_CENTS  = 125000;   // $1,250.00/mo recurring retainer, in cents\nconst SETUP_FEE_AMOUNT_CENTS = 150000;   // $1,500.00 one-time deployment fee, in cents\nconst SETUP_FEE_DESCRIPTION  = 'Initial Infrastructure & AI Agent Deployment Fee (one-time)';\nconst RETAINER_CURRENCY     = 'usd';\nconst RETAINER_DESCRIPTION  = 'Monthly retainer - initial invoice';\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const body = item.json.body ?? item.json;\n\n  // PandaDoc posts an array of events; DocuSign posts a single object.\n  const evt = Array.isArray(body) ? body[0] : body;\n  if (!evt) { continue; }\n\n  const d = evt.data ?? {};\n  let provider, isCompleted, documentId, documentName, email, name, downloadUrl;\n  // Where per-deal metadata and company live; SignWell nests them one deeper.\n  let metaHost = d;\n\n  // SignWell sends event as an OBJECT ({id,time,type,hash}) and wraps the\n  // document in data.object -- check it first, since the PandaDoc branch is\n  // the fallthrough and would otherwise swallow it.\n  const isSignWell = (evt.event && typeof evt.event === 'object' && evt.event.type)\n                  || (d.object && typeof d.object === 'object');\n\n  if (isSignWell) {\n    // ---- SignWell ----\n    provider = 'signwell';\n    const obj    = d.object ?? {};\n    const type   = String(evt.event?.type ?? '').toLowerCase();\n    const status = String(obj.status ?? '').toLowerCase();\n    metaHost = obj;\n\n    isCompleted  = type === 'document_completed' || status === 'completed';\n    documentId   = obj.id;\n    documentName = obj.name ?? `document-${documentId}`;\n\n    const signer = (obj.recipients ?? []).find(r => String(r.status ?? '').toLowerCase() === 'completed')\n                ?? (obj.recipients ?? [])[0] ?? {};\n    email = signer.email;\n    name  = signer.name || signer.email;\n\n    // SignWell requires an X-Api-Key call to fetch the finished PDF.\n    downloadUrl = evt.download_url\n      ?? obj.completed_pdf_url\n      ?? `https://www.signwell.com/api/v1/documents/${documentId}/completed_pdf/`;\n  } else if (d.envelopeId || evt.envelopeId || d.envelopeSummary) {\n    // ---- DocuSign Connect ----\n    provider = 'docusign';\n    const summary = d.envelopeSummary ?? d;\n    const signer  = summary?.recipients?.signers?.[0] ?? {};\n    const status  = String(summary.status ?? evt.status ?? '').toLowerCase();\n\n    isCompleted  = status === 'completed' || String(evt.event ?? '').toLowerCase() === 'envelope-completed';\n    documentId   = d.envelopeId ?? evt.envelopeId;\n    documentName = summary.emailSubject ?? `envelope-${documentId}`;\n    email        = signer.email;\n    name         = signer.name;\n    // DocuSign requires an authenticated eSignature API call to fetch the PDF.\n    downloadUrl  = evt.download_url\n      ?? `https://demo.docusign.net/restapi/v2.1/accounts/{{ACCOUNT_ID}}/envelopes/${documentId}/documents/combined`;\n  } else {\n    // ---- PandaDoc ----\n    provider = 'pandadoc';\n    const recipient = (d.recipients ?? []).find(r => r.has_completed) ?? (d.recipients ?? [])[0] ?? {};\n    const status    = String(d.status ?? evt.status ?? '').toLowerCase();\n\n    isCompleted  = status === 'document.completed'\n                || String(evt.event ?? '').toLowerCase() === 'document_completed';\n    documentId   = d.id ?? evt.id;\n    documentName = d.name ?? `document-${documentId}`;\n    email        = recipient.email;\n    name         = [recipient.first_name, recipient.last_name].filter(Boolean).join(' ') || recipient.email;\n    downloadUrl  = evt.download_url ?? `https://api.pandadoc.com/public/v1/documents/${documentId}/download`;\n  }\n\n  // Metadata overrides let the e-sign template carry per-deal commercials.\n  const meta = metaHost.metadata ?? d.metadata ?? evt.metadata ?? {};\n\n  const amountCents   = Number(meta.retainer_amount_cents ?? RETAINER_AMOUNT_CENTS);\n  // Setup fee may be overridden per deal, and may be 0 to waive it entirely.\n  const setupFeeCents = Number(meta.setup_fee_amount_cents ?? SETUP_FEE_AMOUNT_CENTS);\n\n  if (isCompleted && (!Number.isInteger(amountCents) || amountCents <= 0)) {\n    throw new Error(\n      `RETAINER_AMOUNT_CENTS is not configured (got ${JSON.stringify(RETAINER_AMOUNT_CENTS)}). ` +\n      `Set it to an integer number of cents in the \"Normalize E-Signature Payload\" node, ` +\n      `or supply metadata.retainer_amount_cents from the e-signature template.`\n    );\n  }\n\n  if (isCompleted && (!Number.isInteger(setupFeeCents) || setupFeeCents < 0)) {\n    throw new Error(\n      `SETUP_FEE_AMOUNT_CENTS is invalid (got ${JSON.stringify(setupFeeCents)}). ` +\n      `Must be a non-negative integer number of cents. Set 0 to waive the setup fee.`\n    );\n  }\n\n  if (isCompleted && !email) {\n    throw new Error(`Completed ${provider} document ${documentId} has no signer email; cannot invoice.`);\n  }\n\n  out.push({\n    json: {\n      provider,\n      is_completed: Boolean(isCompleted),\n      document_id: documentId ?? null,\n      document_name: documentName,\n      file_name: `${String(documentName).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80)}.pdf`,\n      client_email: email ?? null,\n      client_name: name ?? null,\n      client_company: meta.company ?? metaHost.company ?? d.company ?? null,\n      download_url: downloadUrl,\n      retainer_amount_cents: amountCents,\n      setup_fee_amount_cents: setupFeeCents,\n      setup_fee_description: meta.setup_fee_description ?? SETUP_FEE_DESCRIPTION,\n      initial_invoice_total_cents: amountCents + setupFeeCents,\n      initial_invoice_description:\n        `Initial invoice - deployment fee plus first month retainer ` +\n        `(${((amountCents + setupFeeCents) / 100).toFixed(2)} ${String(meta.currency ?? RETAINER_CURRENCY).toUpperCase()})`,\n      retainer_currency: String(meta.currency ?? RETAINER_CURRENCY).toLowerCase(),\n      retainer_description: meta.description ?? RETAINER_DESCRIPTION,\n      received_at: new Date().toISOString(),\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "4345888a-ae16-4c5e-b943-553c64e27247",
+      "name": "Normalize E-Signature Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c33af5aa-08fe-4567-b6fa-ed35ce554422",
+              "leftValue": "={{ $json.is_completed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "c006dc8d-ee0b-47fd-92e1-3869ef4adb91",
+      "name": "Is document.completed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -64,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.download_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $json.provider === \"signwell\" ? $env.SIGNWELL_API_KEY : undefined }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "d4864dc9-b2d2-4cef-aba9-451814d4f085",
+      "name": "Download Signed PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        208
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Normalize E-Signature Payload').item.json.file_name }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Resolve Client Folder ID').first().json.client_folder_id }}"
+        },
+        "options": {}
+      },
+      "id": "ce32558d-6750-4c49-b5b9-cbafd207a66c",
+      "name": "Upload to Client Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2144,
+        208
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "Accl1Up0lhAMKTtC",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5000/api/alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUB_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"DEAL_CLOSED\",\n  \"lead\": \"{{ $('Normalize E-Signature Payload').first().json.client_email }}\",\n  \"company\": \"{{ $('Normalize E-Signature Payload').first().json.client_company || '' }}\",\n  \"document_id\": \"{{ $('Normalize E-Signature Payload').first().json.document_id }}\",\n  \"invoice_id\": \"{{ $('Stripe: Create Invoice').first().json.id }}\",\n  \"invoice_total_cents\": {{ $('Resolve Customer for Invoicing').first().json.invoice_total_cents }},\n  \"setup_fee_charged\": {{ $('Resolve Customer for Invoicing').first().json.setup_fee_charged }},\n  \"message\": \"DEAL CLOSED: New Client Signed MSA \u2014 invoice sent.\"\n}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "8e048d2f-dd71-4e66-86f5-08df394cd0d0",
+      "name": "Orion HUD: Deal Closed Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4560,
+        208
+      ],
+      "retryOnFail": false,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "notes": "Terminal, non-blocking. Runs after the invoice is sent, so a HUD outage cannot delay or prevent billing. Failures are swallowed by design."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/customers",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $('Idempotency Guard').first().json.stripe_idempotency_base }}-customer"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $('Normalize E-Signature Payload').first().json.client_name }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $('Normalize E-Signature Payload').first().json.client_email }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ 'Signed MSA ' + $('Normalize E-Signature Payload').first().json.document_id }}"
+            },
+            {
+              "name": "metadata[document_id]",
+              "value": "={{ $('Normalize E-Signature Payload').first().json.document_id }}"
+            },
+            {
+              "name": "metadata[esign_provider]",
+              "value": "={{ $('Normalize E-Signature Payload').first().json.provider }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "56783543-77ab-4cc1-af42-82c464884d7f",
+      "name": "Stripe: Create Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2800,
+        352
+      ],
+      "credentials": {
+        "stripeApi": {
+          "id": "IgNxMejxM6MAC5ZM",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/invoiceitems",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $('Idempotency Guard').first().json.stripe_idempotency_base }}-setupfee"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "customer",
+              "value": "={{ $('Stripe: Create Customer').item.json.id }}"
+            },
+            {
+              "name": "amount",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.setup_fee_amount_cents }}"
+            },
+            {
+              "name": "currency",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.retainer_currency }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.setup_fee_description }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "959baee2-8f1b-4d26-bcff-d9b6df1dfd52",
+      "name": "Stripe: Invoice Item \u2014 Setup Fee",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3024,
+        352
+      ],
+      "credentials": {
+        "stripeApi": {
+          "id": "IgNxMejxM6MAC5ZM",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/invoiceitems",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $('Idempotency Guard').first().json.stripe_idempotency_base }}-retainer"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "customer",
+              "value": "={{ $json.customer_id }}"
+            },
+            {
+              "name": "amount",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.retainer_amount_cents }}"
+            },
+            {
+              "name": "currency",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.retainer_currency }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.retainer_description }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "d4d1d95f-3918-41fc-94a6-8dbde9b1cf1a",
+      "name": "Stripe: Invoice Item \u2014 Monthly Retainer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3680,
+        208
+      ],
+      "credentials": {
+        "stripeApi": {
+          "id": "IgNxMejxM6MAC5ZM",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/invoices",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $('Idempotency Guard').first().json.stripe_idempotency_base }}-invoice"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "customer",
+              "value": "={{ $json.customer }}"
+            },
+            {
+              "name": "collection_method",
+              "value": "send_invoice"
+            },
+            {
+              "name": "days_until_due",
+              "value": "15"
+            },
+            {
+              "name": "auto_advance",
+              "value": "true"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Resolve Customer for Invoicing').item.json.invoice_description }}"
+            },
+            {
+              "name": "metadata[document_id]",
+              "value": "={{ $('Normalize E-Signature Payload').first().json.document_id }}"
+            },
+            {
+              "name": "metadata[esign_provider]",
+              "value": "={{ $('Normalize E-Signature Payload').first().json.provider }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "68c378a2-d793-43b5-b252-2a4dce33e9f8",
+      "name": "Stripe: Create Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3904,
+        208
+      ],
+      "credentials": {
+        "stripeApi": {
+          "id": "IgNxMejxM6MAC5ZM",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.stripe.com/v1/invoices/{{ $json.id }}/send",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $('Idempotency Guard').first().json.stripe_idempotency_base }}-send"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "551f4cee-a482-4d22-97e2-9fe79056c8cd",
+      "name": "Stripe: Finalize & Email Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4128,
+        208
+      ],
+      "credentials": {
+        "stripeApi": {
+          "id": "IgNxMejxM6MAC5ZM",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "008b8c7b-ae7e-48a2-bc9a-01fc51f3774e",
+      "name": "Ignore: Not a Completion Event",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        208,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.stripe.com/v1/customers",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $('Normalize E-Signature Payload').item.json.client_email }}"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "dc1edbd4-2a4d-4994-8711-8678e2f2c9ea",
+      "name": "Stripe: Find Customer by Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2368,
+        208
+      ],
+      "credentials": {
+        "stripeApi": {
+          "id": "IgNxMejxM6MAC5ZM",
+          "name": "Stripe account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "124ed0da-950c-45cf-99d7-01c7db8833af",
+              "leftValue": "={{ $json.data && $json.data.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "6a9aa256-fd05-4bbe-b406-ff610f810d09",
+      "name": "Existing Customer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2592,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dda329da-fb42-4980-ac06-53263f76d1c4",
+              "name": "customer_id",
+              "value": "={{ $json.data[0].id }}",
+              "type": "string"
+            },
+            {
+              "id": "3a45cc7c-92f5-4d5e-ad64-be8d91969ee7",
+              "name": "is_existing_customer",
+              "value": "={{ true }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c87e645a-4804-4e22-8ffe-49c67f24a83d",
+      "name": "Set: Use Existing Customer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2800,
+        80
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "1d266e72-f77b-4a24-b94f-9928d98e94ff",
+      "name": "Merge Customer Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3248,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Runs on both branches of the dedupe split.\n//   New-customer path arrives as a Stripe invoiceitem object, which carries `customer`.\n//   Existing-customer path arrives as the Set node output, which carries `customer_id`.\n// Normalizes the two shapes and derives the correct invoice total and description,\n// since an existing customer is NOT charged the one-time deployment fee again.\n\nconst norm = $('Normalize E-Signature Payload').first().json;\nconst currency = String(norm.retainer_currency || 'usd').toUpperCase();\nconst out = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  const customerId = j.customer_id ?? j.customer ?? null;\n\n  if (!customerId) {\n    throw new Error(\n      'Could not resolve a Stripe customer id after the dedupe branch. ' +\n      `Received keys: ${Object.keys(j).join(', ')}`\n    );\n  }\n\n  const isExisting = Boolean(j.is_existing_customer);\n  const totalCents = isExisting\n    ? norm.retainer_amount_cents\n    : norm.retainer_amount_cents + norm.setup_fee_amount_cents;\n\n  out.push({\n    json: {\n      customer_id: customerId,\n      is_existing_customer: isExisting,\n      setup_fee_charged: !isExisting,\n      invoice_total_cents: totalCents,\n      invoice_description: isExisting\n        ? `Monthly retainer (${(totalCents / 100).toFixed(2)} ${currency})`\n        : `Initial invoice - deployment fee plus first month retainer `\n          + `(${(totalCents / 100).toFixed(2)} ${currency})`,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "fc8b1cd7-e163-4411-abd3-48ccccafbea7",
+      "name": "Resolve Customer for Invoicing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3472,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// Fail-closed HMAC verification for e-signature webhooks.\n//\n// REQUIRES on the n8n instance:\n//   NODE_FUNCTION_ALLOW_BUILTIN=crypto      (or *)\n//   ESIGN_WEBHOOK_SECRET=<shared secret from DocuSign / PandaDoc>\n//   SIGNWELL_API_KEY=<SignWell API key>     (optional; falls back to the above)\n//\n// Supported schemes:\n//   DocuSign Connect : HMAC-SHA256(raw body),          base64, header x-docusign-signature-N\n//   PandaDoc         : HMAC-SHA256(raw body),          hex,    query param ?signature=\n//   SignWell         : HMAC-SHA256(event.time + type), hex,    body field event.hash\n//\n// !! SignWell caveat: its hash covers only the event timestamp and type, NOT\n// !! the request body. A valid hash therefore proves the event came from\n// !! SignWell but does NOT prove the payload is unmodified, and the same hash\n// !! stays valid for replays of that (time, type) pair. The downstream\n// !! \"Idempotency Guard\" is what prevents a replayed document from being\n// !! invoiced twice -- do not remove it.\n//\n// Any failure -- missing module, missing secret, missing or bad signature --\n// throws. This node must never let an unverified payload reach Stripe.\n// ---------------------------------------------------------------------------\n\nlet crypto;\ntry {\n  crypto = require('crypto');\n} catch (e) {\n  throw new Error(\n    'Signature verification unavailable: the Code node cannot load \"crypto\". ' +\n    'Set NODE_FUNCTION_ALLOW_BUILTIN=crypto on the n8n instance and restart. ' +\n    'Refusing to process an unverified payload.'\n  );\n}\n\nfunction readEnv(name) {\n  try {\n    return $env[name];\n  } catch (e) {\n    throw new Error(\n      `Cannot read $env.${name} (env access is blocked in Code nodes). ` +\n      'Unset N8N_BLOCK_ENV_ACCESS_IN_NODE, or inline the secret here. ' +\n      'Refusing to process an unverified payload.'\n    );\n  }\n}\n\n// Read both up front so a misconfigured instance fails on the env, not the scheme.\nconst esignSecret  = readEnv('ESIGN_WEBHOOK_SECRET');\nconst signwellKey  = readEnv('SIGNWELL_API_KEY') || esignSecret;\n\nfunction requireSecret(value, name, scheme) {\n  if (!value || String(value).trim() === '') {\n    throw new Error(\n      `${name} is empty or unset, so the \"${scheme}\" signature cannot be checked. ` +\n      'Refusing to process an unverified payload.'\n    );\n  }\n  return String(value);\n}\n\n// --- recover the exact bytes the provider signed --------------------------\nlet rawBuf = null;\ntry {\n  if (typeof this !== 'undefined' && this.helpers && this.helpers.getBinaryDataBuffer) {\n    rawBuf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  }\n} catch (e) {\n  rawBuf = null;\n}\nif (!rawBuf) {\n  const bin = $input.first().binary && $input.first().binary.data;\n  if (bin && bin.data) {\n    rawBuf = Buffer.from(bin.data, 'base64');\n  }\n}\nif (!rawBuf || !rawBuf.length) {\n  throw new Error(\n    'Raw request body unavailable. Enable \"Raw Body\" on the Webhook node. ' +\n    'Signature cannot be verified against a re-serialised body.'\n  );\n}\n\nconst headers = $input.first().json.headers || {};\nconst query   = $input.first().json.query   || {};\n\nfunction timingSafeEq(a, b) {\n  const ab = Buffer.from(String(a));\n  const bb = Buffer.from(String(b));\n  if (ab.length !== bb.length) return false;   // length leak is not sensitive here\n  return crypto.timingSafeEqual(ab, bb);\n}\n\nfunction hmac(secret, data, encoding) {\n  return crypto.createHmac('sha256', secret).update(data).digest(encoding);\n}\n\n// SignWell carries its signature inside the body, so parse before dispatching.\n// A parse failure is not fatal yet -- the raw-body schemes do not need it.\nlet parsed = null;\ntry {\n  parsed = JSON.parse(rawBuf.toString('utf8'));\n} catch (e) {\n  parsed = null;\n}\nconst parsedEvt   = Array.isArray(parsed) ? parsed[0] : parsed;\nconst signwellEvt = (parsedEvt && parsedEvt.event && typeof parsedEvt.event === 'object')\n  ? parsedEvt.event\n  : null;\n\n// DocuSign rotates keys, so it may send several numbered signature headers.\nconst docusignSigs = Object.keys(headers)\n  .filter(k => /^x-docusign-signature-\\d+$/i.test(k))\n  .map(k => headers[k])\n  .filter(Boolean);\n\nconst pandadocSig = query.signature || headers['x-pandadoc-signature'] || null;\n\nlet scheme = null;\nlet verified = false;\n\nif (docusignSigs.length > 0) {\n  scheme = 'docusign';\n  const secret = requireSecret(esignSecret, 'ESIGN_WEBHOOK_SECRET', scheme);\n  const digestB64 = hmac(secret, rawBuf, 'base64');\n  verified = docusignSigs.some(sig => timingSafeEq(sig, digestB64));\n} else if (pandadocSig) {\n  scheme = 'pandadoc';\n  const secret = requireSecret(esignSecret, 'ESIGN_WEBHOOK_SECRET', scheme);\n  // Accept either encoding; PandaDoc documents hex.\n  verified = timingSafeEq(pandadocSig, hmac(secret, rawBuf, 'hex'))\n          || timingSafeEq(pandadocSig, hmac(secret, rawBuf, 'base64'));\n} else if (signwellEvt && signwellEvt.hash) {\n  scheme = 'signwell';\n  const key = requireSecret(signwellKey, 'SIGNWELL_API_KEY / ESIGN_WEBHOOK_SECRET', scheme);\n  if (signwellEvt.time === undefined || signwellEvt.time === null || !signwellEvt.type) {\n    throw new Error(\n      'SignWell payload has event.hash but is missing event.time or event.type, ' +\n      'so the signed string cannot be reconstructed. Payload rejected.'\n    );\n  }\n  const signedString = `${signwellEvt.time}${signwellEvt.type}`;\n  const expected = hmac(key, signedString, 'hex');\n  verified = timingSafeEq(String(signwellEvt.hash).toLowerCase(), expected.toLowerCase());\n} else {\n  throw new Error(\n    'No webhook signature present (looked for x-docusign-signature-N header, ' +\n    '?signature= query param, and SignWell event.hash). Rejecting unsigned payload.'\n  );\n}\n\nif (!verified) {\n  throw new Error(\n    `Webhook signature mismatch for scheme \"${scheme}\". Payload rejected. ` +\n    'Either the shared secret is wrong or the request is forged.'\n  );\n}\n\n// --- signature good: hand downstream --------------------------------------\nif (parsed === null) {\n  throw new Error('Signature valid but body is not JSON.');\n}\n\nreturn [{\n  json: {\n    body: parsed,\n    headers,\n    query,\n    signature_scheme: scheme,\n    signature_verified: true,\n  },\n}];\n"
+      },
+      "id": "3c1eb3b9-b55d-48be-a45e-ef429415e817",
+      "name": "Verify Webhook Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        304
+      ],
+      "notes": "Fail-closed HMAC check. Needs NODE_FUNCTION_ALLOW_BUILTIN=crypto and ESIGN_WEBHOOK_SECRET."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// Duplicate-submission guard.\n//\n// Keyed on provider + document_id, persisted in workflow static data so it\n// survives across executions.\n//\n// Two-phase claim so a crashed run does not permanently block re-billing:\n//   in_progress + fresh  -> duplicate (a retry is racing us) -> skip\n//   in_progress + stale  -> previous run died -> reclaim and reprocess\n//   completed            -> already invoiced -> skip\n//\n// \"Mark Document Processed\" flips the claim to completed after the invoice\n// is actually sent. Stripe Idempotency-Key headers on the mutating calls are\n// the second line of defence for races this ledger cannot see.\n// ---------------------------------------------------------------------------\n\nconst CLAIM_TTL_MS  = 15 * 60 * 1000;             // assume a run older than this died\nconst LEDGER_TTL_MS = 90 * 24 * 60 * 60 * 1000;   // forget documents after 90 days\nconst MAX_ENTRIES   = 5000;                       // hard cap on ledger growth\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.processedDocuments || typeof staticData.processedDocuments !== 'object') {\n  staticData.processedDocuments = {};\n}\nconst ledger = staticData.processedDocuments;\nconst now = Date.now();\n\n// prune by age\nfor (const k of Object.keys(ledger)) {\n  const entry = ledger[k];\n  if (!entry || typeof entry.ts !== 'number' || (now - entry.ts) > LEDGER_TTL_MS) {\n    delete ledger[k];\n  }\n}\n// prune by size, oldest first\nconst keys = Object.keys(ledger);\nif (keys.length > MAX_ENTRIES) {\n  keys.sort((a, b) => ledger[a].ts - ledger[b].ts)\n      .slice(0, keys.length - MAX_ENTRIES)\n      .forEach(k => delete ledger[k]);\n}\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n\n  if (!j.document_id) {\n    throw new Error(\n      'Completed document has no document_id; cannot guarantee single billing. ' +\n      'Refusing to proceed rather than risk a duplicate invoice.'\n    );\n  }\n\n  const key  = `${j.provider}:${j.document_id}`;\n  const prev = ledger[key];\n\n  let isDuplicate = false;\n  let reason = 'new_document';\n\n  if (prev && prev.status === 'completed') {\n    isDuplicate = true;\n    reason = 'already_invoiced';\n  } else if (prev && prev.status === 'in_progress' && (now - prev.ts) < CLAIM_TTL_MS) {\n    isDuplicate = true;\n    reason = 'in_flight';\n  } else if (prev && prev.status === 'in_progress') {\n    reason = 'stale_claim_reclaimed';\n  }\n\n  if (!isDuplicate) {\n    ledger[key] = {\n      status: 'in_progress',\n      ts: now,\n      attempts: ((prev && prev.attempts) || 0) + 1,\n      client_email: j.client_email || null,\n    };\n  }\n\n  out.push({\n    json: {\n      ...j,\n      idempotency_key: key,\n      // Safe inside a Stripe Idempotency-Key header (max 255 chars, opaque).\n      stripe_idempotency_base: `msa-${j.provider}-${j.document_id}`.slice(0, 200),\n      is_duplicate: isDuplicate,\n      duplicate_reason: reason,\n      previous_invoice_id: (prev && prev.invoice_id) || null,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "11293496-dea0-4996-8195-5e6752249cce",
+      "name": "Idempotency Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        208
+      ],
+      "notes": "Claim ledger in workflow static data. Blocks repeat billing for the same signed document."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "af1e39d3-4fcf-45c2-a950-f9a3227d3820",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "9a46acfd-e644-44f2-bdbc-a7200d4c834d",
+      "name": "Already Processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flip the claim from in_progress to completed now that the invoice is sent.\n// Until this runs, a crashed execution leaves a claim that expires after\n// CLAIM_TTL_MS so the document can be retried rather than silently lost.\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.processedDocuments || typeof staticData.processedDocuments !== 'object') {\n  staticData.processedDocuments = {};\n}\n\nconst guard = $('Idempotency Guard').first().json;\nconst key = guard.idempotency_key;\nconst prev = staticData.processedDocuments[key] || {};\n\nconst out = [];\nfor (const item of $input.all()) {\n  const invoiceId = item.json.id || null;\n\n  staticData.processedDocuments[key] = {\n    status: 'completed',\n    ts: Date.now(),\n    attempts: prev.attempts || 1,\n    invoice_id: invoiceId,\n    client_email: guard.client_email || null,\n    document_id: guard.document_id || null,\n  };\n\n  out.push({\n    json: {\n      ...item.json,\n      idempotency_key: key,\n      billing_committed: true,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "76bda976-a9e7-4012-a27b-fbed6c22dd70",
+      "name": "Mark Document Processed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4352,
+        208
+      ],
+      "notes": "Commits the idempotency claim. Runs only after the invoice is actually sent."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// Derive the per-client Drive folder name from the normalized payload and\n// build a safe Drive v3 search query.\n//\n// The name is client-controlled (it arrives via e-sign template metadata), so\n// it is sanitised before use and escaped before being interpolated into the\n// query string. An unescaped apostrophe would break the query outright; a\n// crafted one could alter its meaning.\n// ---------------------------------------------------------------------------\n\nconst PARENT_FOLDER_ID = 'YOUR_DRIVE_FOLDER_ID';\nconst FOLDER_MIME = 'application/vnd.google-apps.folder';\nconst MAX_NAME_LEN = 120;\n\nfunction sanitizeFolderName(raw) {\n  return String(raw)\n    .replace(/[\\u0000-\\u001F\\u007F]/g, ' ')  // strip control characters\n    .replace(/[\\\\/]/g, '-')                  // path separators confuse Drive UIs\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, MAX_NAME_LEN)\n    .trim();\n}\n\n// Drive v3 query literals are single-quoted: escape backslash then quote.\nfunction escapeDriveQueryValue(value) {\n  return String(value).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n\n  // Company is the routing key; fall back to signer name, then email local part.\n  const rawCandidate =\n    j.client_company ||\n    j.client_name ||\n    (j.client_email ? String(j.client_email).split('@')[0] : null);\n\n  if (!rawCandidate || !String(rawCandidate).trim()) {\n    throw new Error(\n      `Cannot derive a client folder name for document ${j.document_id}: ` +\n      'client_company, client_name and client_email are all empty. ' +\n      'Refusing to file a signed MSA into an unnamed folder.'\n    );\n  }\n\n  const folderName = sanitizeFolderName(rawCandidate);\n  if (!folderName) {\n    throw new Error(\n      `Client folder name for document ${j.document_id} is empty after ` +\n      `sanitising ${JSON.stringify(String(rawCandidate).slice(0, 80))}.`\n    );\n  }\n\n  const query =\n    `'${escapeDriveQueryValue(PARENT_FOLDER_ID)}' in parents and ` +\n    `name = '${escapeDriveQueryValue(folderName)}' and ` +\n    `mimeType = '${FOLDER_MIME}' and trashed = false`;\n\n  out.push({\n    json: {\n      ...j,\n      client_folder_name: folderName,\n      client_folder_name_source: j.client_company\n        ? 'company'\n        : (j.client_name ? 'signer_name' : 'email_local_part'),\n      client_folder_parent_id: PARENT_FOLDER_ID,\n      drive_search_query: query,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "ff1e6fc5-7ad4-4bb8-8698-41f9094a7424",
+      "name": "Resolve Client Folder Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        208
+      ],
+      "notes": "Derives + sanitises the client folder name and builds an escaped Drive query."
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.drive_search_query }}"
+            },
+            {
+              "name": "fields",
+              "value": "files(id,name,createdTime),incompleteSearch"
+            },
+            {
+              "name": "orderBy",
+              "value": "createdTime"
+            },
+            {
+              "name": "pageSize",
+              "value": "10"
+            },
+            {
+              "name": "spaces",
+              "value": "drive"
+            },
+            {
+              "name": "supportsAllDrives",
+              "value": "true"
+            },
+            {
+              "name": "includeItemsFromAllDrives",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "acb0ba73-e7fd-4d13-96c1-77f47b301c0f",
+      "name": "Drive: Search Client Folder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        832,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "Accl1Up0lhAMKTtC",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3b991053-6a23-4b8b-898d-242c8a8c2126",
+              "leftValue": "={{ $json.files && $json.files.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "ef58c185-62b2-4777-ac1e-f7594f708caa",
+      "name": "Client Folder Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3162a66a-1e2e-450c-a117-d4e089bafb8d",
+              "name": "client_folder_id",
+              "value": "={{ $json.files[0].id }}",
+              "type": "string"
+            },
+            {
+              "id": "a80af278-d21d-4b00-9c38-b4b878842585",
+              "name": "folder_was_created",
+              "value": "={{ false }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ca6e232d-2b08-42be-b09e-faf9446dbd1a",
+      "name": "Set: Use Existing Folder",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1264,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,parents"
+            },
+            {
+              "name": "supportsAllDrives",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Resolve Client Folder Name').first().json.client_folder_name, mimeType: 'application/vnd.google-apps.folder', parents: [$('Resolve Client Folder Name').first().json.client_folder_parent_id] }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "7f6ce433-00bf-4fd0-be17-5647f91951fe",
+      "name": "Drive: Create Client Folder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1264,
+        352
+      ],
+      "retryOnFail": false,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "Accl1Up0lhAMKTtC",
+          "name": "Google Drive account"
+        }
+      },
+      "notes": "Creates the client subfolder. Not retried - Drive allows duplicate names."
+    },
+    {
+      "parameters": {},
+      "id": "e5efcf8b-4f4b-4cd5-9cc7-77bfad7232bc",
+      "name": "Merge Folder Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1488,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalises the two branch shapes into a single folder id.\n//   existing path -> Set node output: { client_folder_id, folder_was_created }\n//   created path  -> Drive file resource: { id, name, parents }\n\nconst named = $('Resolve Client Folder Name').first().json;\nconst out = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  const wasCreated = j.client_folder_id === undefined;\n  const folderId = j.client_folder_id ?? j.id ?? null;\n\n  if (!folderId) {\n    throw new Error(\n      'Could not resolve a Drive folder id after the lookup-or-create branch. ' +\n      `Received keys: ${Object.keys(j).join(', ')}`\n    );\n  }\n\n  out.push({\n    json: {\n      client_folder_id: folderId,\n      client_folder_name: named.client_folder_name,\n      client_folder_parent_id: named.client_folder_parent_id,\n      folder_was_created: wasCreated,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "id": "df2a2924-ac37-414a-8c0f-f4f3024ee32f",
+      "name": "Resolve Client Folder ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: E-Signature Completed": {
+      "main": [
+        [
+          {
+            "node": "Verify Webhook Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Webhook Signature": {
+      "main": [
+        [
+          {
+            "node": "Normalize E-Signature Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize E-Signature Payload": {
+      "main": [
+        [
+          {
+            "node": "Is document.completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is document.completed?": {
+      "main": [
+        [
+          {
+            "node": "Idempotency Guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore: Not a Completion Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency Guard": {
+      "main": [
+        [
+          {
+            "node": "Already Processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Processed?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Resolve Client Folder Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Client Folder Name": {
+      "main": [
+        [
+          {
+            "node": "Drive: Search Client Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Search Client Folder": {
+      "main": [
+        [
+          {
+            "node": "Client Folder Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client Folder Exists?": {
+      "main": [
+        [
+          {
+            "node": "Set: Use Existing Folder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Drive: Create Client Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set: Use Existing Folder": {
+      "main": [
+        [
+          {
+            "node": "Merge Folder Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Create Client Folder": {
+      "main": [
+        [
+          {
+            "node": "Merge Folder Paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Folder Paths": {
+      "main": [
+        [
+          {
+            "node": "Resolve Client Folder ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Client Folder ID": {
+      "main": [
+        [
+          {
+            "node": "Download Signed PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Signed PDF": {
+      "main": [
+        [
+          {
+            "node": "Upload to Client Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Client Folder": {
+      "main": [
+        [
+          {
+            "node": "Stripe: Find Customer by Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe: Find Customer by Email": {
+      "main": [
+        [
+          {
+            "node": "Existing Customer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing Customer?": {
+      "main": [
+        [
+          {
+            "node": "Set: Use Existing Customer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stripe: Create Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe: Create Customer": {
+      "main": [
+        [
+          {
+            "node": "Stripe: Invoice Item \u2014 Setup Fee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe: Invoice Item \u2014 Setup Fee": {
+      "main": [
+        [
+          {
+            "node": "Merge Customer Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set: Use Existing Customer": {
+      "main": [
+        [
+          {
+            "node": "Merge Customer Paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Customer Paths": {
+      "main": [
+        [
+          {
+            "node": "Resolve Customer for Invoicing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Customer for Invoicing": {
+      "main": [
+        [
+          {
+            "node": "Stripe: Invoice Item \u2014 Monthly Retainer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe: Invoice Item \u2014 Monthly Retainer": {
+      "main": [
+        [
+          {
+            "node": "Stripe: Create Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe: Create Invoice": {
+      "main": [
+        [
+          {
+            "node": "Stripe: Finalize & Email Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe: Finalize & Email Invoice": {
+      "main": [
+        [
+          {
+            "node": "Mark Document Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Document Processed": {
+      "main": [
+        [
+          {
+            "node": "Orion HUD: Deal Closed Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 900,
+    "timezone": "America/New_York",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "client-onboarding-msa-signed"
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "e0a4faa0-1571-4d04-86d7-97e64ac47c75",
+  "activeVersionId": null,
+  "versionCounter": 18,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-01T02:42:43.951Z",
+      "createdAt": "2026-08-01T02:42:43.951Z",
+      "role": "workflow:owner",
+      "workflowId": "tN2favkQmhlwu8fQ",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

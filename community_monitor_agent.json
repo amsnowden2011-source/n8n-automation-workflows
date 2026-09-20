@@ -1,0 +1,404 @@
+{
+  "updatedAt": "2026-07-19T17:29:06.776Z",
+  "createdAt": "2026-07-19T17:28:48.080Z",
+  "id": "oauxudfVfXK7024k",
+  "name": "community monitor agent",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "feedUrl": "https://www.reddit.com/search.rss?q=automated+content+creation+OR+content+creation+OR+ai+blogging+OR+content+marketing+OR+ai+writer+OR+content+automation+OR+bulk+content+OR+programmatic+SEO+OR+social+media+automation+OR+social+media+burnout+OR+tired+of+posting+OR+write+blogs+faster+OR+chatgpt+for+blogging&sort=new"
+      },
+      "type": "n8n-nodes-base.rssFeedReadTrigger",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        112
+      ],
+      "id": "6075c3b1-f9ec-403e-991f-98cc8a2e41c4",
+      "name": "RSS Feed Trigger"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a 30-something millennial casually scrolling social media. Your goal is to genuinely help people who are stressed about either personal finance or digital marketing/content creation. \n\nCRITICAL RULE 1 (TONE MATCHING & VIBE): You are a social chameleon. You must read the original post and mirror their exact tone, energy, and level of formality. If they use slang, respond with matching casual slang (e.g., 'ngl', 'fr', 'I feel you', 'dude I totally feel it'). If they write formally but are stressed out, remain relaxed and highly empathetic, but dial back the slang so you don't sound out of place. Always sound like a peer or a friend, never a corporate bot.\n\nCRITICAL RULE 2 (LENGTH): Keep it to 1 or 2 short, punchy paragraphs max. No walls of text.\n\nWhen you find a post, follow this exact structure:\n1. Validate: Start by validating their frustration using language that mirrors their post.\n2. Pivot to the Solution: Offer a solution based strictly on their specific pain point, but DO NOT name specific companies or apps:\n- If they are struggling with saving/investing: Mention how you stopped stressing by setting up a '2-step automated wealth stack' (explain casually that one tool just sweeps your spare change into investments, and another holds cash for high yield so it grows on autopilot).\n- If they are overwhelmed with marketing/content: Mention how you and your business partner were drowning in the same busywork until you plugged in a system called the blueprint engine to automate all the manual stuff.\n\n3. Offer Help: Casually offer to answer whatever questions they have.\n4. The Call to Action (NO LINKS): NEVER include a URL or link in your reply. Tell them they can reply to your comment, shoot you a DM, or just grab the exact setup from the link in your bio.\n\nCRITICAL RULE 3 (THE SAFETY VALVE): If they ask a specific question you do not know the answer to, DO NOT guess or make up facts. Simply validate the question and push to DMs (e.g., 'that's a super good question, shoot me a DM and I'll break down exactly how we handle that.')",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -240,
+        112
+      ],
+      "id": "43588371-c4dc-44f8-9a32-e5adf3e5c0ec",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -304,
+        320
+      ],
+      "id": "d59fa2a0-6188-4dbf-85cf-2f62ee811f28",
+      "name": "Google Gemini Chat Model"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "DISCORD_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "AI leads workspace",
+          "cachedResultUrl": "https://discord.com/channels/DISCORD_GUILD_ID"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "DISCORD_CHANNEL_ID",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/DISCORD_GUILD_ID/DISCORD_CHANNEL_ID"
+        },
+        "content": "=\ud83d\udea8 **New Reddit Lead!**\n**Title:** {{$json.title}}\n\n**Drafted Pitch:** {{$('Basic LLM Chain').item.json.text}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        112,
+        112
+      ],
+      "id": "c2bbd15a-88dd-49df-930f-8716a0ed4a01",
+      "name": "Send a message",
+      "webhookId": "161a89f9-5280-49e9-bd08-1eb415259f2d"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        144,
+        304
+      ],
+      "id": "427ab5a6-1604-4f31-b976-01c6f05d8f0e",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "guildId": {
+          "__rl": true,
+          "value": "DISCORD_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "AI leads workspace",
+          "cachedResultUrl": "https://discord.com/channels/DISCORD_GUILD_ID"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "DISCORD_CHANNEL_ID",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/DISCORD_GUILD_ID/DISCORD_CHANNEL_ID"
+        },
+        "limit": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        400,
+        240
+      ],
+      "id": "34c5243e-a058-474b-a228-c7d425c2639e",
+      "name": "Get many messages",
+      "webhookId": "1e28b23e-1ece-424c-84f9-45b216824520"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4e453567-0693-455c-bf08-ac994115fe71",
+              "leftValue": "={{ $json.author.bot }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -160,
+        -80
+      ],
+      "id": "8cb13418-1121-4814-ad2a-56cba23a49c5",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "DISCORD_GUILD_ID",
+          "mode": "list",
+          "cachedResultName": "AI leads workspace",
+          "cachedResultUrl": "https://discord.com/channels/DISCORD_GUILD_ID"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "DISCORD_CHANNEL_ID",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/DISCORD_GUILD_ID/DISCORD_CHANNEL_ID"
+        },
+        "content": "=\ud83d\udea8 **New Reddit Lead Found!**\n**Title:** {{ $('RSS Feed Trigger').item.json.title }}\n**Link:** {{ $('RSS Feed Trigger').item.json.link }}\n\n\ud83e\udd16 **AI Drafted Reply for Review:**\n{{ $json.text }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        208,
+        -48
+      ],
+      "id": "ec895e19-eab9-476f-8b83-d4cbbb26dbe3",
+      "name": "Send a message1",
+      "webhookId": "5e784aa5-1867-4bcf-8982-3089ad42c266"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "85c34e3e-c875-4977-b36c-ce7ef21f595b",
+              "leftValue": "={{  $json.content }}\n}}",
+              "rightValue": "Approved",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -160,
+        304
+      ],
+      "id": "8eb3eb22-7e04-433d-be4b-03d9c98dcce3",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -112,
+        448
+      ],
+      "id": "c3fd8d15-ec8b-42d7-bea2-3a634be0a0c8",
+      "name": "Google Gemini Chat Model1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        176,
+        1312
+      ],
+      "id": "49fcf7e1-9a32-4d96-9d0c-d3f0f007c74a",
+      "name": "Google Gemini Chat Model10"
+    },
+    {
+      "parameters": {
+        "text": "Testing my new n8n automation setup! \ud83d\ude80",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [
+        224,
+        416
+      ],
+      "id": "d986d4a0-03bc-4ce3-9373-794f7960618a",
+      "name": "Create Tweet"
+    }
+  ],
+  "connections": {
+    "RSS Feed Trigger": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "38d040e2-c56b-45e0-89bb-e5e44158a5d3",
+  "activeVersionId": null,
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-07-19T17:28:48.085Z",
+      "createdAt": "2026-07-19T17:28:48.085Z",
+      "role": "workflow:owner",
+      "workflowId": "oauxudfVfXK7024k",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

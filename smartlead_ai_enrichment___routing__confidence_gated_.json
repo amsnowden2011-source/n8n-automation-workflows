@@ -1,0 +1,597 @@
+{
+  "updatedAt": "2026-08-17T17:51:22.765Z",
+  "createdAt": "2026-07-30T06:14:28.491Z",
+  "id": "Zccnh5HIgVCBpooU",
+  "name": "Smartlead AI Enrichment & Routing (Confidence Gated)",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlead-inbound",
+        "options": {}
+      },
+      "name": "Catch Inbound Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -96
+      ],
+      "id": "9f7ff236-582b-4f52-9f48-f48a5e68e35e",
+      "webhookId": "c6a8dc60-9fe1-4b1f-a7e0-104d4be96fa5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.2:3b\",\n  \"prompt\": \"Qualify this B2B prospect for cold email outreach. Name: {{ $json.body.firstName }} {{ $json.body.lastName }}. Company: {{ $json.body.company }}. Title: {{ $json.body.title }}. Email: {{ $json.body.email }}. 1. Classify as QUALIFIED or NOT_QUALIFIED. 2. Rate your confidence 0-100. Output strictly JSON: {\\\"intent\\\": \\\"QUALIFIED\\\", \\\"confidence\\\": 95}\",\n  \"stream\": false,\n  \"format\": \"json\"\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Hermes Intent & Confidence",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        96,
+        -96
+      ],
+      "id": "674276c5-3e25-4ca0-b1a4-16aa2db9da7a",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [
+            {
+              "value1": "={{ (() => { try { return Number(JSON.parse($json.response || '{}').confidence) || 0 } catch (e) { return 0 } })() }}",
+              "operation": "largerEqual",
+              "value2": 85
+            }
+          ],
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "name": "Confidence > 85?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -96
+      ],
+      "id": "db38ea21-63d6-4bca-9155-60109233bfbd"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5000/api/alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUB_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  type: 'LOW_CONFIDENCE_APPROVAL',\n  lead: $('Catch Inbound Lead').first().json.body.email,\n  name: ($('Catch Inbound Lead').first().json.body.firstName || '') + ' '\n      + ($('Catch Inbound Lead').first().json.body.lastName || ''),\n  company: $('Catch Inbound Lead').first().json.body.company,\n  gate: (() => { try { return JSON.parse($json.response || '{}') } catch (e) { return {} } })(),\n  approve_url: $execution.resumeUrl + '?decision=approve',\n  reject_url:  $execution.resumeUrl + '?decision=reject',\n  resume_url:  $execution.resumeUrl,\n  message: 'Lead scored below the auto-send threshold - approve to enroll.'\n}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "name": "Ping Orion HUD for Approval",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        544,
+        32
+      ],
+      "id": "5af836b8-6529-4f4c-8fcb-0660959bc9c6",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "name": "Wait for Human",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        736,
+        32
+      ],
+      "id": "82e10703-722b-4c3f-9211-f45126f1d533",
+      "webhookId": "7bf8f017-3be0-467c-bbe0-9e79b2cc71fc"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://server.smartlead.ai/api/v1/campaigns/3744225/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_key",
+              "value": "={{ $env.SMARTLEAD_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  lead_list: [{\n    first_name:   $('Catch Inbound Lead').first().json.body.firstName,\n    last_name:    $('Catch Inbound Lead').first().json.body.lastName,\n    email:        $('Catch Inbound Lead').first().json.body.email,\n    company_name: $('Catch Inbound Lead').first().json.body.company,\n    linkedin_profile: $('Catch Inbound Lead').first().json.body.linkedinUrl\n  }],\n  settings: {\n    ignore_global_block_list: false,\n    ignore_unsubscribe_list: false,\n    ignore_duplicate_leads_in_other_campaign: false\n  }\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Send via Smartlead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        960,
+        -96
+      ],
+      "id": "c6eacea1-5458-4cf8-bec0-dc83a842ff54",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlead-reply-webhook",
+        "options": {}
+      },
+      "id": "be6c1780-c7ba-40cc-834e-7e3585c21f81",
+      "name": "Smartlead Reply Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        272
+      ],
+      "webhookId": "smartlead-reply-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.2:3b\",\n  \"prompt\": \"You are an expert sales development assistant. Analyze the incoming prospect reply below. \\n\\n1. Categorize the intent into exactly one of: 'Positive', 'Question', or 'Not Interested'.\\n2. Draft a short, natural, highly professional email reply to keep the conversation moving toward booking a call (e.g., answering their question directly or providing a scheduling link).\\n\\nIncoming Prospect Reply: ' {{ $json.body.msg }} '\\n\\nOutput your response in clean JSON format with two keys: 'intent' and 'draft_reply'.\",\n  \"stream\": false,\n  \"format\": \"json\"\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "e10d1d0f-a494-4d2f-a3e0-7bef3685c917",
+      "name": "Hermes Reply Intent Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        80,
+        272
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Ollama returns the model output as a JSON string in `response`.\n// Never throw here: a malformed reply must still reach a human.\nlet intent = 'Unknown', draft = '';\ntry {\n  const parsed = JSON.parse($json.response || '{}');\n  intent = parsed.intent || 'Unknown';\n  draft  = parsed.draft_reply || '';\n} catch (e) {\n  intent = 'Unknown';\n  draft  = String($json.response || '').slice(0, 2000);\n}\n\nconst hook = $('Smartlead Reply Webhook').first().json.body || {};\n\nreturn {\n  json: {\n    intent,\n    draft_reply: draft,\n    is_positive: /positive|question/i.test(intent),\n    lead_email: hook.email || hook.lead_email || hook.to_email || null,\n    campaign_id: hook.campaign_id || null,\n    reply_text: hook.msg || hook.reply || null,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        272
+      ],
+      "id": "b1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Parse Reply Intent"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b1b2c3d4-0002-4000-8000-000000000002",
+              "leftValue": "={{ $json.is_positive }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        272
+      ],
+      "id": "b1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Positive Reply?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5000/api/alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUB_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  type: 'REPLY_POSITIVE_SEND_MSA',\n  lead: $json.lead_email,\n  intent: $json.intent,\n  reply: $json.reply_text,\n  draft_reply: $json.draft_reply,\n  message: 'Positive reply - review draft and send MSA for signature.'\n}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        752,
+        208
+      ],
+      "id": "b1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Orion HUD: Send MSA",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        752,
+        352
+      ],
+      "id": "b1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Not Interested - No Action"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The resume callback shape varies by how the HUD calls back\n// (query string, JSON body, or a bare ping). Default to REJECT: an\n// ambiguous callback must never enroll a lead the gate already doubted.\nconst q = $json.query || {};\nconst b = $json.body || {};\nconst raw = String(q.decision ?? b.decision ?? q.action ?? b.action ?? '').toLowerCase();\n\nconst approved = raw === 'approve' || raw === 'approved' || raw === 'yes' || b.approved === true;\n\nreturn {\n  json: {\n    approved,\n    decision: raw || 'none',\n    decided_by: b.user || q.user || 'orion-hud',\n    raw_callback: { query: q, body: b },\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        32
+      ],
+      "id": "c1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Parse Approval Decision"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1b2c3d4-0002-4000-8000-000000000002",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1136,
+        32
+      ],
+      "id": "c1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Approved?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        176
+      ],
+      "id": "c1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Rejected - No Action"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Builds the {action, payload} contract the SalesGod Adapter expects.\n// Reached from BOTH the auto-send branch and the human-approved branch;\n// which one is inferred rather than duplicated into two nodes.\nconst lead = $('Catch Inbound Lead').first().json.body || {};\n\n// Reuse the score the gate already produced. Re-running the 3B model here\n// would double inference cost and could contradict the routing decision.\nlet gate = {};\ntry { gate = JSON.parse($('Hermes Intent & Confidence').first().json.response || '{}'); } catch (e) {}\n\nlet viaHuman = false;\ntry { viaHuman = $('Wait for Human').isExecuted; } catch (e) { viaHuman = false; }\n\nlet approval = null;\nif (viaHuman) {\n  try { approval = $('Parse Approval Decision').first().json; } catch (e) {}\n}\n\n// Hunter is email-only, so phone is expected to be null. Rather than bolt on a\n// third-party lookup, hand SalesGod every identifier it can resolve a number\n// from and let it enrich natively on receipt.\nconst phone = lead.phone || null;\n\nconst firmographics = {\n  company_name:   lead.company || null,\n  company_domain: lead.companyDomain || null,\n  job_title:      lead.title || null,\n  linkedin_url:   lead.linkedinUrl || null,\n};\n\n// Which vectors are actually populated, so a null phone is diagnosable rather\n// than a silent enrichment failure on their side.\nconst vectors = Object.entries(firmographics)\n  .filter(([, v]) => v)\n  .map(([k]) => k);\n\nreturn {\n  json: {\n    action: 'inbound_routing',\n    payload: {\n      email:      lead.email,\n      first_name: lead.firstName,\n      last_name:  lead.lastName,\n      phone,\n\n      ...firmographics,\n\n      enrichment: {\n        needs_phone_lookup: phone === null,\n        available_vectors:  vectors,\n        vector_count:       vectors.length,\n      },\n\n      qualification: {\n        intent:     gate.intent ?? null,\n        confidence: gate.confidence ?? null,\n        route:      viaHuman ? 'human_approved' : 'auto_qualified',\n        decided_by: viaHuman ? (approval?.decided_by ?? 'orion-hud') : 'llama3.2:3b',\n      },\n\n      smartlead: {\n        campaign_id: '3744225',\n        enrolled:    true,\n        response_id: $json.id ?? $json.data?.id ?? null,\n      },\n\n      source: lead.source || 'lead-generation-pipeline',\n      dedupe_key: `salesgod:inbound:${lead.email}`,\n    },\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -96
+      ],
+      "id": "c1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Build SalesGod Payload"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "SalesGodAdapter1",
+          "mode": "id",
+          "cachedResultName": "SalesGod Adapter"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1584,
+        -96
+      ],
+      "id": "c1b2c3d4-0006-4000-8000-000000000006",
+      "name": "SalesGod Adapter: inbound_routing",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Catch Inbound Lead": {
+      "main": [
+        [
+          {
+            "node": "Hermes Intent & Confidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hermes Intent & Confidence": {
+      "main": [
+        [
+          {
+            "node": "Confidence > 85?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ping Orion HUD for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence > 85?": {
+      "main": [
+        [
+          {
+            "node": "Send via Smartlead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ping Orion HUD for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ping Orion HUD for Approval": {
+      "main": [
+        [
+          {
+            "node": "Wait for Human",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Human": {
+      "main": [
+        [
+          {
+            "node": "Parse Approval Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smartlead Reply Webhook": {
+      "main": [
+        [
+          {
+            "node": "Hermes Reply Intent Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hermes Reply Intent Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Reply Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Reply Intent": {
+      "main": [
+        [
+          {
+            "node": "Positive Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Positive Reply?": {
+      "main": [
+        [
+          {
+            "node": "Orion HUD: Send MSA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not Interested - No Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Approval Decision": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send via Smartlead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rejected - No Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via Smartlead": {
+      "main": [
+        [
+          {
+            "node": "Build SalesGod Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SalesGod Payload": {
+      "main": [
+        [
+          {
+            "node": "SalesGod Adapter: inbound_routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "e1942a26-92d4-4925-8abe-5cef420c6e0d",
+  "activeVersionId": null,
+  "versionCounter": 68,
+  "triggerCount": 2,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-07-30T06:14:28.494Z",
+      "createdAt": "2026-07-30T06:14:28.494Z",
+      "role": "workflow:owner",
+      "workflowId": "Zccnh5HIgVCBpooU",
+      "projectId": "fK0xUKJUtZ5kWB1V",
+      "project": {
+        "updatedAt": "2026-07-19T07:46:41.876Z",
+        "createdAt": "2026-07-19T07:26:21.723Z",
+        "id": "fK0xUKJUtZ5kWB1V",
+        "name": "Automation Engineer <user@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "e62a027f-2b58-436e-b1ee-4624c8973e96"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version e1942a26",
+    "description": ""
+  }
+}
