@@ -1,0 +1,6 @@
+*.zip
+*.env*
+*.sqlite
+**/Commercial_Lead_Router*
+**/workflows/**/*.json
+!payload-schemas/*.json

@@ -1,0 +1,31 @@
+{
+  "action": "inbound_routing",
+  "payload": {
+    "email": "dana.whitfield@northwind-logistics.example.com",
+    "first_name": "Dana",
+    "last_name": "Whitfield",
+    "phone": null,
+    "company_name": "Northwind Logistics",
+    "company_domain": "northwind-logistics.example.com",
+    "job_title": "VP of Operations",
+    "linkedin_url": "https://www.linkedin.com/in/dana-whitfield-example",
+    "enrichment": {
+      "needs_phone_lookup": true,
+      "available_vectors": ["company_name", "company_domain", "job_title", "linkedin_url"],
+      "vector_count": 4
+    },
+    "qualification": {
+      "intent": "QUALIFIED",
+      "confidence": 92,
+      "route": "auto_qualified",
+      "decided_by": "llm-gate"
+    },
+    "campaign": {
+      "campaign_id": "4821993",
+      "enrolled": true,
+      "response_id": "enr_000000example"
+    },
+    "source": "website-demo-request",
+    "dedupe_key": "lead-router:inbound:dana.whitfield@northwind-logistics.example.com"
+  }
+}
