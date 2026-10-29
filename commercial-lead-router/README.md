@@ -69,6 +69,28 @@ The model returns `confidence` as an integer from 0 to 100, which this table sho
 
 All names, domains and IDs in the mocks are fictitious (`*.example.com`).
 
+### Inbound Webhook Payload
+
+```json
+{
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "email": "jane.doe@example.com",
+  "company": "Example Industries",
+  "companyDomain": "example.com",
+  "title": "VP of Operations",
+  "linkedinUrl": "https://www.linkedin.com/in/jane-doe-example",
+  "phone": null,
+  "source": "website-demo-request"
+}
+```
+
+### LLM Qualification Output (Llama 3.2)
+
+```json
+{"intent":"QUALIFIED","confidence":90}
+```
+
 ---
 
 ## Error handling
