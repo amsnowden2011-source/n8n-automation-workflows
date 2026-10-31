@@ -1,7 +1,7 @@
 # Commercial Lead Router (Confidence Gated)
 
-[![Buy Template on Gumroad](https://img.shields.io/badge/Gumroad-Buy_Template_$47-black?style=for-the-badge&logo=gumroad)](https://quietalexander.gumroad.com/l/commercial-lead-router)
-[![Get Done-For-You Setup](https://img.shields.io/badge/QuietCommerce-Async_Setup_$197-blue?style=for-the-badge)](https://quietalexander.gumroad.com/l/commercial-lead-router)
+[![Buy Template on Gumroad](https://img.shields.io/badge/Gumroad-Buy_Template_$97-black?style=for-the-badge&logo=gumroad)](https://quietalexander.gumroad.com/l/commercial-lead-router)
+[![Get Done-For-You Setup](https://img.shields.io/badge/QuietCommerce-Async_Setup_$297-blue?style=for-the-badge)](https://quietalexander.gumroad.com/l/commercial-lead-router)
 
 An n8n workflow that scores inbound B2B leads with an LLM. It auto-enrolls the ones it is confident about into a cold-email campaign and sends everything else to a human for one-click Approve/Reject. Every enrolled lead is written to your CRM. A second webhook classifies prospect replies and holds the positive ones for review.
 

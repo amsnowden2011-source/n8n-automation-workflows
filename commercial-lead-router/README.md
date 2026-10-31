@@ -1,6 +1,6 @@
 # Commercial Lead Router (Confidence Gated)
 
-[![Buy Template on Gumroad](https://img.shields.io/badge/Gumroad-Buy_Template_$47-black?style=for-the-badge&logo=gumroad)](https://quietalexander.gumroad.com/l/commercial-lead-router)
+[![Buy Template on Gumroad](https://img.shields.io/badge/Gumroad-Buy_Template_$97-black?style=for-the-badge&logo=gumroad)](https://quietalexander.gumroad.com/l/commercial-lead-router)
 
 An n8n workflow that scores inbound B2B leads with a local LLM, auto-enrolls only the confident ones into a cold-email campaign, and sends everything else to a human. A second trigger classifies prospect replies and queues the warm ones for review.
 
