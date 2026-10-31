@@ -2,7 +2,7 @@
 
 Four n8n pipelines run QuietCommerce HQ's lead routing, product fulfillment, customer support and incident alerting. They run in production on a single self-hosted node. Each one follows the same rules: untrusted input stays data, ambiguous outcomes go to a human, and every failure path ends in an alert.
 
-This repository documents the architecture. Workflow exports are not published here. The Commercial Lead Router template is [sold on Gumroad](https://quietcommercehq.gumroad.com/l/ddqvgd).
+This repository documents the architecture. Workflow exports are not published here. The Commercial Lead Router template is [sold on Gumroad](https://quietalexander.gumroad.com/l/commercial-lead-router).
 
 ---
 
