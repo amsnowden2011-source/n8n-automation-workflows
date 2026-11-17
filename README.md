@@ -64,7 +64,7 @@ Any failure in any workflow ──► Error Trigger ──► redacted SMTP aler
 
 Every model decision is checked before anything happens outside the system, and anything uncertain goes to a human.
 
-- The Lead Router turns the model's score into a 0.0–1.0 confidence. Only a `QUALIFIED` verdict at or above the threshold (default **0.85**) auto-enrolls a lead. See the [scoring matrix](./commercial-lead-router/README.md#confidence-scoring-matrix).
+- The Lead Router turns the model's score into a 0.0–1.0 confidence. Only a `QUALIFIED` verdict at or above the threshold (**0.85** live; ships at **1.01** for a shadow-mode rollout) auto-enrolls a lead. A 24h dead man's switch (`heartbeat-monitor.json`) alerts the admin when no leads arrive. See the [scoring matrix](./commercial-lead-router/README.md#confidence-scoring-matrix).
 - Unparseable output, an out-of-range score or an unknown intent scores **-1**, which always goes to a human. A failed model call goes to a human and also alerts the admin.
 - Approval callbacks reject by default. Only an explicit `approve` counts as approval.
 - The Support Agent does not use a score. Its gate is a deterministic DLP check on the model's reply: a reply matching a secret or exfiltration pattern is withheld and the operator is alerted.

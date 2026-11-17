@@ -8,7 +8,7 @@ Technical reference for deploying and troubleshooting the **Commercial Lead Rout
 
 | Flow | Webhook | Purpose |
 |------|---------|---------|
-| A — Inbound lead | `POST /webhook/commercial-lead-inbound` | LLM scores lead → auto-enroll if `QUALIFIED` and `confidence ≥ threshold`, else Approve/Reject email → enroll → CRM log |
+| A — Inbound lead | `POST /webhook/commercial-lead-inbound` | LLM scores lead → auto-enroll if `QUALIFIED` and `confidence/100 ≥ threshold` (ships at `1.01` = shadow mode, nothing auto-enrolls), else Approve/Reject email → enroll → CRM log |
 | B — Prospect reply | `POST /webhook/commercial-lead-reply` | LLM classifies reply → `Positive`/`Question`/`Unknown` held for human review, `Not Interested` dropped |
 
 Safety rules built in:
@@ -41,7 +41,7 @@ Use your container name if it isn't `n8n` (`docker ps --format '{{.Names}}\t{{.I
 5. **Send Approval Email** and **Notify Admin** → one SMTP credential.
 
 ### 2.3 Configuration node (`⚙️ CONFIGURATION - EDIT HERE FIRST`)
-`confidence_threshold` (0–100, e.g. `85`), `email_platform_base_url` (no trailing slash), `campaign_id`, `crm_webhook_url`, `lead_source`, `approver_email`, `admin_email`, `notification_from_email` (must be allowed by SMTP provider).
+`confidence_threshold` (normalized 0.0–1.0; ships at `1.01` = shadow mode, go live with `0.85` — see README *Shadow-mode rollout*), `email_platform_base_url` (no trailing slash), `campaign_id`, `crm_webhook_url`, `lead_source`, `approver_email`, `admin_email`, `notification_from_email` (must be allowed by SMTP provider).
 
 ### 2.4 Test, then activate
 Test URLs (`/webhook-test/...`) only listen after you click **Execute workflow**, and only for one request. Click it again before each test call.
@@ -58,7 +58,9 @@ curl -X POST "https://<n8n>/webhook-test/commercial-lead-reply" \
   -H "Content-Type: application/json" \
   -d @reply_sample.json
 ```
-To force the human path, temporarily set `confidence_threshold` to `101`. Scores max out at `100`, so no lead can auto-enroll. Then click **Approve** in the email, and set the threshold back afterwards.
+The default `confidence_threshold` of `1.01` already forces the human path: normalized scores max out at `1.00`, so no lead can auto-enroll. Click **Approve** in the email. To test the auto path, temporarily set it to `0.85`, then set it back to `1.01` until the shadow-mode review is done.
+
+After go-live, import and activate `heartbeat-monitor.json` (24h dead man's switch; see README). It emails `admin_email` when the router has had no executions in 24 h.
 
 Go-live: toggle the workflow **Active**, then switch callers to the production URLs:
 - `https://<n8n>/webhook/commercial-lead-inbound`

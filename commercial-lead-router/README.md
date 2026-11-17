@@ -41,7 +41,7 @@ The model only drafts replies. A human always sends them. If a reply can't be cl
 
 ## Confidence scoring matrix
 
-The model returns `confidence` as an integer from 0 to 100, which this table shows scaled to 0.0–1.0. The threshold is configurable and defaults to **0.85** (`confidence_threshold: 85`).
+The model returns `confidence` as an integer from 0 to 100, which the gate scales to 0.0–1.0 before comparing it with `confidence_threshold`. The table shows the live threshold of **0.85**. The export ships in shadow mode at **1.01** (see below).
 
 | Model output | Normalized score | Input screen | Route | `qualification.route` |
 |---|---|---|---|---|
@@ -57,6 +57,39 @@ The model returns `confidence` as an integer from 0 to 100, which this table sho
 **Approval semantics.** Only an explicit `decision=approve` (or `approved`/`yes`, or `"approved": true`) enrolls a lead. A bare callback, an unknown value or a malformed body counts as a rejection.
 
 **One scoring call.** `Build CRM Payload` reuses the gate's score rather than calling the model again. A second call would cost more and could contradict the routing decision.
+
+### Shadow-mode rollout (`1.01` → `0.85`)
+
+The workflow ships with `confidence_threshold: 1.01`. No normalized score can reach it, so every lead goes to a human while the model's score is shown in the approval email. Once reviewers agree with the model's high scores, set the threshold to `0.85` in **⚙️ CONFIGURATION - EDIT HERE FIRST** to turn on auto-enrollment. Setting it back to `1.01` is the rollback.
+
+---
+
+## 24h dead man's switch
+
+`heartbeat-monitor.json` is a second, small workflow. Every 24 hours it reads the router's executions through the n8n API and, if none started in the last 24 hours, emails `admin_email`. If the API call fails, it sends a "check failed" email instead of staying silent. Alerts use the same `api_key=` / `Bearer` redaction as **Notify Admin**. It imports inactive.
+
+```
+Every 24 Hours ─► Configuration ─► Get Router Executions ─► Count Executions (Last 24h) ─► No Leads? (count == 0) ─► Send Email
+                                          └─ error ─► Send Check-Failed Email
+```
+
+---
+
+## Files
+
+```
+commercial-lead-router/
+├── README.md                    # this page
+├── payload-schemas/
+│   ├── inbound-lead.json        # lead source → Path A (mock)
+│   └── routed-lead.json         # router → CRM (mock)
+└── src/                         # Code node logic as standalone JS modules
+    ├── build-crm-payload.js
+    ├── parse-approval-decision.js
+    └── parse-reply-intent.js
+```
+
+Buyer package (`Commercial_Lead_Router_v2.zip`, not in this repo): `Commercial_Lead_Router_v2.json`, `heartbeat-monitor.json`, `README.md`, `async-setup.md`.
 
 ---
 
