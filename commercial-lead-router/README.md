@@ -66,12 +66,20 @@ The workflow ships with `confidence_threshold: 1.01`. No normalized score can re
 
 ## 24h dead man's switch
 
-`heartbeat-monitor.json` is a second, small workflow. Every 24 hours it reads the router's executions through the n8n API and, if none started in the last 24 hours, emails `admin_email`. If the API call fails, it sends a "check failed" email instead of staying silent. Alerts use the same `api_key=` / `Bearer` redaction as **Notify Admin**. It imports inactive.
+`heartbeat-monitor.json` is a second, small workflow (8 nodes). Every 24 hours it reads the router's executions through the n8n API and, if none started in the last 24 hours, emails `admin_email`. A broken lead source, a rotated webhook secret or a deactivated router would otherwise fail silently: no execution runs, so **Notify Admin** never fires. If the API call fails, it sends a "check failed" email instead of staying silent. Alerts use the same `api_key=` / `Bearer` redaction as **Notify Admin**. It imports inactive.
 
 ```
-Every 24 Hours ─► Configuration ─► Get Router Executions ─► Count Executions (Last 24h) ─► No Leads? (count == 0) ─► Send Email
-                                          └─ error ─► Send Check-Failed Email
+Every 24 Hours (Schedule Trigger)
+  └─► ⚙️ CONFIGURATION (router_workflow_id, lookback_hours, admin_email, notification_from_email)
+        └─► Get Router Executions (n8n API, newest 250)
+              ├─ ok ──► Count Executions (Last 24h)
+              │           └─► No Leads?  (execution_count == 0)
+              │                 ├─ yes ─► Send Email (to admin_email)
+              │                 └─ no ──► Leads Flowing - No Action
+              └─ error ─► Send Check-Failed Email (to admin_email)
 ```
+
+Setup: import it, set `router_workflow_id`, `admin_email` and `notification_from_email` in **⚙️ CONFIGURATION - EDIT HERE FIRST** (keep `lookback_hours` at `24`), attach an *n8n API* credential to **Get Router Executions** and the router's SMTP credential to both email nodes, then activate.
 
 ---
 
